@@ -82,6 +82,10 @@ class ClickerGame {
         resetButton: HTMLButtonElement;
         upgradeClickCard: HTMLElement;
         upgradeAutoCard: HTMLElement;
+        // Modal de confirmación
+        confirmModal: HTMLElement;
+        modalCancel: HTMLButtonElement;
+        modalConfirm: HTMLButtonElement;
     };
     
     // ID del intervalo del auto-clicker
@@ -141,7 +145,11 @@ class ClickerGame {
             autoUpgradeLevel: document.getElementById('upgrade-auto-level')!,
             resetButton: document.getElementById('reset-button') as HTMLButtonElement,
             upgradeClickCard: document.getElementById('upgrade-click')!,
-            upgradeAutoCard: document.getElementById('upgrade-auto')!
+            upgradeAutoCard: document.getElementById('upgrade-auto')!,
+            // Modal de confirmación
+            confirmModal: document.getElementById('confirm-modal')!,
+            modalCancel: document.getElementById('modal-cancel') as HTMLButtonElement,
+            modalConfirm: document.getElementById('modal-confirm') as HTMLButtonElement
         };
     }
 
@@ -158,8 +166,19 @@ class ClickerGame {
         // Comprar mejora de auto-click
         this.elements.autoUpgradeButton.addEventListener('click', () => this.buyAutoUpgrade());
         
-        // Reiniciar juego
-        this.elements.resetButton.addEventListener('click', () => this.resetGame());
+        // Reiniciar juego - mostrar modal
+        this.elements.resetButton.addEventListener('click', () => this.showConfirmModal());
+        
+        // Botones del modal
+        this.elements.modalCancel.addEventListener('click', () => this.hideConfirmModal());
+        this.elements.modalConfirm.addEventListener('click', () => this.confirmReset());
+        
+        // Cerrar modal al hacer click fuera
+        this.elements.confirmModal.addEventListener('click', (e: MouseEvent) => {
+            if (e.target === this.elements.confirmModal) {
+                this.hideConfirmModal();
+            }
+        });
         
         // Guardar antes de cerrar la página
         window.addEventListener('beforeunload', () => this.saveProgress());
@@ -384,30 +403,50 @@ class ClickerGame {
     }
 
     /**
+     * Muestra el modal de confirmación
+     */
+    private showConfirmModal(): void {
+        this.elements.confirmModal.classList.remove('hidden');
+    }
+
+    /**
+     * Oculta el modal de confirmación
+     */
+    private hideConfirmModal(): void {
+        this.elements.confirmModal.classList.add('hidden');
+    }
+
+    /**
+     * Confirma el reinicio del juego desde el modal
+     */
+    private confirmReset(): void {
+        // Ocultar el modal
+        this.hideConfirmModal();
+        
+        // Reiniciar el juego
+        this.resetGame();
+    }
+
+    /**
      * Reinicia el juego completamente
      */
     private resetGame(): void {
-        // Confirmar antes de reiniciar
-        const confirmed = confirm('¿Estás seguro de que quieres reiniciar el juego? Se perderá todo el progreso.');
-        
-        if (confirmed) {
-            // Detener el auto-clicker
-            if (this.autoClickerInterval !== null) {
-                clearInterval(this.autoClickerInterval);
-                this.autoClickerInterval = null;
-            }
-            
-            // Restaurar estado por defecto
-            this.state = this.getDefaultState();
-            
-            // Limpiar localStorage
-            localStorage.removeItem(STORAGE_KEY);
-            
-            // Actualizar UI
-            this.updateUI();
-            
-            console.log('Juego reiniciado');
+        // Detener el auto-clicker
+        if (this.autoClickerInterval !== null) {
+            clearInterval(this.autoClickerInterval);
+            this.autoClickerInterval = null;
         }
+        
+        // Restaurar estado por defecto
+        this.state = this.getDefaultState();
+        
+        // Limpiar localStorage
+        localStorage.removeItem(STORAGE_KEY);
+        
+        // Actualizar UI
+        this.updateUI();
+        
+        console.log('Juego reiniciado');
     }
 }
 
