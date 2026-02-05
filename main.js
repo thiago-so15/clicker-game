@@ -4090,23 +4090,32 @@ class ClickerGame {
         this.pointsMultiplier = 1;
         // Restaurar estado por defecto
         this.state = this.getDefaultState();
-        // Resetear estadísticas del perfil (mantener nombre y avatar)
-        const savedName = this.profile.name;
-        const savedAvatar = this.profile.avatar;
+        // Resetear perfil completamente
         this.profile = this.getDefaultProfile();
-        this.profile.name = savedName;
-        this.profile.avatar = savedAvatar;
-        // Resetear estadísticas avanzadas (mantener historial)
-        const savedHistory = this.stats.sessionHistory;
+        // Resetear estadísticas avanzadas completamente
         this.stats = this.getDefaultStats();
-        this.stats.sessionHistory = savedHistory;
-        this.stats.totalSessions = savedHistory.length + 1;
         // Resetear sesión actual
         this.currentSession = this.createNewSession();
-        // Limpiar localStorage del juego
+        // Resetear misiones
+        this.completedMissionIds = [];
+        this.missions = this.initializeMissions();
+        // Resetear prestigio
+        this.prestige = this.getDefaultPrestige();
+        // Resetear progresión (mantener tema por defecto)
+        this.progression = this.getDefaultProgression();
+        // Resetear configuración a valores por defecto
+        this.settings = this.getDefaultSettings();
+        // Limpiar TODOS los datos de localStorage
         localStorage.removeItem(STORAGE_KEY);
-        this.saveProfile();
-        this.saveStats();
+        localStorage.removeItem(SETTINGS_KEY);
+        localStorage.removeItem(PROFILE_KEY);
+        localStorage.removeItem(STATS_KEY);
+        localStorage.removeItem(MISSIONS_KEY);
+        localStorage.removeItem(PRESTIGE_KEY);
+        localStorage.removeItem(PROGRESSION_KEY);
+        localStorage.removeItem(MASTER_SAVE_KEY);
+        // Usar también el SaveManager para limpiar
+        saveManager.reset();
         // Emitir evento de reset
         eventBus.emit('game:reset', { timestamp: Date.now() });
         eventBus.emit('points:changed', {
@@ -4115,10 +4124,22 @@ class ClickerGame {
             delta: 0,
             source: 'reset'
         });
-        // Actualizar UI
+        // Aplicar configuración por defecto
+        this.applySettings();
+        // Aplicar tema por defecto
+        this.applyCurrentTheme();
+        // Actualizar toda la UI
         this.updateUI();
         this.updateShopUI();
-        console.log('Juego reiniciado');
+        this.renderShop();
+        this.updateMissionsUI();
+        this.updateMissionsBadge();
+        this.updatePrestigeUI();
+        this.updateStageIndicator();
+        this.renderThemeSelector();
+        this.updateProfileUI();
+        this.updateStatsUI();
+        console.log('🔄 Juego reiniciado completamente');
     }
     // ============================================
     // SISTEMA DE MISIONES
@@ -4147,6 +4168,17 @@ class ClickerGame {
         }));
         // Actualizar progreso inicial de las misiones
         this.updateAllMissionsProgress();
+    }
+    /**
+     * Inicializa las misiones desde la configuración (sin cargar de localStorage)
+     */
+    initializeMissions() {
+        return MISSIONS_CONFIG.map(config => ({
+            ...config,
+            progress: 0,
+            completed: this.completedMissionIds.includes(config.id),
+            completedAt: this.completedMissionIds.includes(config.id) ? Date.now() : undefined
+        }));
     }
     /**
      * Guarda las misiones en localStorage
