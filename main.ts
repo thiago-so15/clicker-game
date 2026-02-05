@@ -764,6 +764,13 @@ interface GameEventMap {
     'offline:earnings-claimed': {
         pointsEarned: number;
     };
+    
+    // === EVENTOS DE ESTADO GLOBAL ===
+    'state:changed': {
+        path: string;
+        previousValue: unknown;
+        newValue: unknown;
+    };
 }
 
 /**
@@ -929,6 +936,1648 @@ class EventBus {
  * Singleton para uso en toda la aplicación
  */
 const eventBus = new EventBus();
+
+// ============================================
+// GAME STATE MANAGER - Estado Central del Juego
+// ============================================
+
+/**
+ * Interfaz para el estado global completo del juego
+ * Representa la única fuente de verdad para todos los datos
+ */
+interface GlobalGameState {
+    // Core gameplay
+    game: GameState;
+    // Configuración
+    settings: GameSettings;
+    // Perfil del jugador
+    profile: PlayerProfile;
+    // Estadísticas avanzadas
+    stats: AdvancedStats;
+    // Sistema de misiones
+    missions: {
+        completedIds: string[];
+    };
+    // Sistema de prestigio
+    prestige: PrestigeState;
+    // Sistema de progresión
+    progression: ProgressionState;
+}
+
+/**
+ * Tipo para paths de propiedades anidadas del estado
+ * Permite acceso tipo 'game.score' o 'settings.soundEnabled'
+ */
+type StatePathKey = 
+    | 'game' | 'game.score' | 'game.pointsPerClick' | 'game.pointsPerSecond' 
+    | 'game.clickUpgradeLevel' | 'game.autoUpgradeLevel' | 'game.purchasedItems'
+    | 'settings' | 'settings.soundEnabled' | 'settings.animationsEnabled' 
+    | 'settings.theme' | 'settings.confirmPurchases'
+    | 'profile' | 'profile.name' | 'profile.avatar' | 'profile.totalClicks'
+    | 'profile.totalPointsEarned' | 'profile.totalTimePlayed' | 'profile.level'
+    | 'stats' | 'prestige' | 'prestige.level' | 'progression' | 'missions';
+
+/**
+ * ============================================
+ * GAME STATE MANAGER
+ * ============================================
+ * 
+ * Singleton que centraliza todo el estado del juego.
+ * Proporciona:
+ * - Acceso controlado mediante get/set
+ * - Emisión automática de eventos al cambiar estado
+ * - Validación de datos
+ * - Integración con SaveManager
+ * 
+ * Uso:
+ *   // Obtener valor
+ *   const score = gameState.get('game.score');
+ *   
+ *   // Establecer valor
+ *   gameState.set('game.score', 100);
+ *   
+ *   // Obtener sección completa
+ *   const gameData = gameState.getSection('game');
+ *   
+ *   // Suscribirse a cambios
+ *   gameState.subscribe('game.score', (newValue, oldValue) => { ... });
+ */
+class GameStateManager {
+    private static instance: GameStateManager;
+    
+    // Estado interno
+    private state: GlobalGameState;
+    
+    // Listeners para cambios de estado
+    private changeListeners: Map<string, Set<(newValue: unknown, oldValue: unknown) => void>> = new Map();
+    
+    // Flag para evitar múltiples notificaciones
+    private batchUpdating: boolean = false;
+    private pendingNotifications: Map<string, { newValue: unknown; oldValue: unknown }> = new Map();
+    
+    private constructor() {
+        // Inicializar con valores por defecto
+        this.state = this.getDefaultState();
+    }
+    
+    /**
+     * Obtener instancia singleton
+     */
+    static getInstance(): GameStateManager {
+        if (!GameStateManager.instance) {
+            GameStateManager.instance = new GameStateManager();
+        }
+        return GameStateManager.instance;
+    }
+    
+    /**
+     * Estado por defecto
+     */
+    private getDefaultState(): GlobalGameState {
+        return {
+            game: {
+                score: 0,
+                pointsPerClick: 1,
+                pointsPerSecond: 0,
+                clickUpgradeLevel: 0,
+                autoUpgradeLevel: 0,
+                purchasedItems: []
+            },
+            settings: {
+                soundEnabled: true,
+                animationsEnabled: true,
+                theme: 'dark',
+                confirmPurchases: true
+            },
+            profile: {
+                name: 'Jugador',
+                avatar: '🎮',
+                totalClicks: 0,
+                totalPointsEarned: 0,
+                totalTimePlayed: 0,
+                level: 1
+            },
+            stats: {
+                totalClicks: 0,
+                bestClickStreak: 0,
+                totalPointsEarned: 0,
+                manualPointsEarned: 0,
+                autoPointsEarned: 0,
+                totalTimePlayed: 0,
+                activeTime: 0,
+                totalSessions: 0,
+                sessionHistory: []
+            },
+            missions: {
+                completedIds: []
+            },
+            prestige: {
+                level: 0,
+                totalHistoricPoints: 0,
+                totalHistoricClicks: 0,
+                totalHistoricItems: 0,
+                totalHistoricMissions: 0,
+                history: []
+            },
+            progression: {
+                currentStage: 0,
+                unlockedStages: ['stage-1'],
+                unlockedThemes: ['neon-violet'],
+                activeTheme: 'neon-violet'
+            }
+        };
+    }
+    
+    /**
+     * Obtener un valor usando path (ej: 'game.score')
+     */
+    get<T = unknown>(path: StatePathKey): T {
+        const parts = path.split('.');
+        let current: unknown = this.state;
+        
+        for (const part of parts) {
+            if (current && typeof current === 'object' && part in current) {
+                current = (current as Record<string, unknown>)[part];
+            } else {
+                return undefined as T;
+            }
+        }
+        
+        return current as T;
+    }
+    
+    /**
+     * Establecer un valor usando path (ej: 'game.score', 100)
+     */
+    set<T = unknown>(path: StatePathKey, value: T): void {
+        const parts = path.split('.');
+        const oldValue = this.get(path);
+        
+        // Si el valor no cambió, no hacer nada
+        if (oldValue === value) {
+            return;
+        }
+        
+        // Navegar hasta el objeto padre
+        let current: Record<string, unknown> = this.state as unknown as Record<string, unknown>;
+        for (let i = 0; i < parts.length - 1; i++) {
+            const key = parts[i];
+            if (key !== undefined) {
+                current = current[key] as Record<string, unknown>;
+            }
+        }
+        
+        // Establecer el valor
+        const lastKey = parts[parts.length - 1];
+        if (lastKey !== undefined) {
+            current[lastKey] = value;
+        }
+        
+        // Notificar cambio
+        if (this.batchUpdating) {
+            this.pendingNotifications.set(path, { newValue: value, oldValue });
+        } else {
+            this.notifyChange(path, value, oldValue);
+        }
+    }
+    
+    /**
+     * Obtener una sección completa del estado
+     */
+    getSection<K extends keyof GlobalGameState>(section: K): GlobalGameState[K] {
+        return JSON.parse(JSON.stringify(this.state[section]));
+    }
+    
+    /**
+     * Establecer una sección completa del estado
+     */
+    setSection<K extends keyof GlobalGameState>(section: K, value: GlobalGameState[K]): void {
+        const oldValue = this.state[section];
+        this.state[section] = JSON.parse(JSON.stringify(value));
+        this.notifyChange(section, value, oldValue);
+    }
+    
+    /**
+     * Obtener el estado completo (copia profunda)
+     */
+    getAll(): GlobalGameState {
+        return JSON.parse(JSON.stringify(this.state));
+    }
+    
+    /**
+     * Establecer el estado completo
+     */
+    setAll(newState: GlobalGameState): void {
+        this.state = JSON.parse(JSON.stringify(newState));
+        this.notifyChange('*', this.state, null);
+    }
+    
+    /**
+     * Iniciar un batch de actualizaciones (evita múltiples notificaciones)
+     */
+    beginBatch(): void {
+        this.batchUpdating = true;
+        this.pendingNotifications.clear();
+    }
+    
+    /**
+     * Finalizar batch y notificar todos los cambios
+     */
+    endBatch(): void {
+        this.batchUpdating = false;
+        this.pendingNotifications.forEach((data, path) => {
+            this.notifyChange(path, data.newValue, data.oldValue);
+        });
+        this.pendingNotifications.clear();
+    }
+    
+    /**
+     * Suscribirse a cambios en un path específico
+     * @param path Path a observar (o '*' para todos los cambios)
+     * @param callback Función a ejecutar cuando cambie
+     * @returns Función para cancelar suscripción
+     */
+    subscribe(path: string, callback: (newValue: unknown, oldValue: unknown) => void): () => void {
+        if (!this.changeListeners.has(path)) {
+            this.changeListeners.set(path, new Set());
+        }
+        
+        this.changeListeners.get(path)!.add(callback);
+        
+        return () => {
+            this.changeListeners.get(path)?.delete(callback);
+        };
+    }
+    
+    /**
+     * Notificar cambio a los listeners
+     */
+    private notifyChange(path: string, newValue: unknown, oldValue: unknown): void {
+        // Notificar listeners específicos del path
+        this.changeListeners.get(path)?.forEach(callback => {
+            try {
+                callback(newValue, oldValue);
+            } catch (error) {
+                console.error(`[GameStateManager] Error en listener de "${path}":`, error);
+            }
+        });
+        
+        // Notificar listeners globales
+        this.changeListeners.get('*')?.forEach(callback => {
+            try {
+                callback({ path, newValue, oldValue }, null);
+            } catch (error) {
+                console.error('[GameStateManager] Error en listener global:', error);
+            }
+        });
+        
+        // Emitir evento al EventBus
+        eventBus.emit('state:changed', {
+            path,
+            previousValue: oldValue,
+            newValue
+        });
+    }
+    
+    /**
+     * Resetear el estado a valores por defecto
+     */
+    reset(): void {
+        const oldState = this.state;
+        this.state = this.getDefaultState();
+        this.notifyChange('*', this.state, oldState);
+    }
+    
+    /**
+     * Modificar el puntaje con validación
+     */
+    addScore(amount: number, source: 'click' | 'auto' | 'offline' | 'dev' = 'click'): void {
+        if (amount < 0) return;
+        
+        const oldScore = this.state.game.score;
+        this.state.game.score += amount;
+        
+        // Emitir evento específico de puntos
+        eventBus.emit('points:changed', {
+            previousScore: oldScore,
+            newScore: this.state.game.score,
+            delta: amount,
+            source: source === 'dev' ? 'click' : source
+        });
+        
+        this.notifyChange('game.score', this.state.game.score, oldScore);
+    }
+    
+    /**
+     * Restar puntaje con validación
+     */
+    subtractScore(amount: number): boolean {
+        if (amount < 0 || this.state.game.score < amount) {
+            return false;
+        }
+        
+        const oldScore = this.state.game.score;
+        this.state.game.score -= amount;
+        
+        eventBus.emit('points:changed', {
+            previousScore: oldScore,
+            newScore: this.state.game.score,
+            delta: -amount,
+            source: 'purchase'
+        });
+        
+        this.notifyChange('game.score', this.state.game.score, oldScore);
+        return true;
+    }
+}
+
+// Instancia global del GameStateManager
+const gameState = GameStateManager.getInstance();
+
+// ============================================
+// DEV PANEL - Panel de Desarrollador
+// ============================================
+
+/**
+ * Configuración de comandos disponibles en Dev Mode
+ */
+interface DevCommand {
+    id: string;
+    label: string;
+    icon: string;
+    description: string;
+    action: () => void;
+    category: 'points' | 'progression' | 'debug' | 'reset';
+}
+
+/**
+ * ============================================
+ * DEV PANEL
+ * ============================================
+ * 
+ * Panel oculto para desarrolladores.
+ * Se activa con Ctrl+Shift+D (Cmd+Shift+D en Mac).
+ * 
+ * Funcionalidades:
+ * - Añadir puntos instantáneamente
+ * - Completar misiones
+ * - Forzar prestigio
+ * - Desbloquear temas
+ * - Resetear progreso
+ * - Ver estado actual
+ * - Activar debug mode del EventBus
+ * 
+ * IMPORTANTE: Este panel es solo para desarrollo
+ * y no debe ser accesible para usuarios normales.
+ */
+class DevPanel {
+    private static instance: DevPanel;
+    
+    // Estado del panel
+    private isVisible: boolean = false;
+    private isEnabled: boolean = false;
+    
+    // Referencia a elementos del DOM
+    private panelElement: HTMLElement | null = null;
+    private logElement: HTMLElement | null = null;
+    
+    // Historial de comandos
+    private commandHistory: string[] = [];
+    
+    // Referencia al juego (se establece después)
+    private gameInstance: ClickerGame | null = null;
+    
+    private constructor() {
+        this.setupKeyboardShortcut();
+    }
+    
+    /**
+     * Obtener instancia singleton
+     */
+    static getInstance(): DevPanel {
+        if (!DevPanel.instance) {
+            DevPanel.instance = new DevPanel();
+        }
+        return DevPanel.instance;
+    }
+    
+    /**
+     * Establecer referencia al juego
+     */
+    setGameInstance(game: ClickerGame): void {
+        this.gameInstance = game;
+    }
+    
+    /**
+     * Habilitar el modo desarrollador
+     */
+    enable(): void {
+        this.isEnabled = true;
+        this.createPanel();
+        this.log('Dev Mode habilitado. Presiona Ctrl+Shift+D para abrir/cerrar.');
+    }
+    
+    /**
+     * Configurar atajo de teclado (Ctrl+Shift+D)
+     */
+    private setupKeyboardShortcut(): void {
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+            // Ctrl+Shift+D (o Cmd+Shift+D en Mac)
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+                e.preventDefault();
+                
+                // Si no está habilitado, habilitarlo primero
+                if (!this.isEnabled) {
+                    this.enable();
+                }
+                
+                this.toggle();
+            }
+        });
+    }
+    
+    /**
+     * Alternar visibilidad del panel
+     */
+    toggle(): void {
+        if (!this.isEnabled) return;
+        
+        this.isVisible = !this.isVisible;
+        
+        if (this.panelElement) {
+            this.panelElement.classList.toggle('hidden', !this.isVisible);
+        }
+        
+        if (this.isVisible) {
+            this.log('Panel abierto');
+            this.updateStateDisplay();
+        }
+    }
+    
+    /**
+     * Crear el panel en el DOM
+     */
+    private createPanel(): void {
+        // Evitar crear múltiples paneles
+        if (document.getElementById('dev-panel')) return;
+        
+        const panel = document.createElement('div');
+        panel.id = 'dev-panel';
+        panel.className = 'dev-panel hidden';
+        
+        panel.innerHTML = `
+            <div class="dev-panel-header">
+                <span class="dev-panel-title">🛠️ Dev Panel</span>
+                <button class="dev-panel-close" id="dev-panel-close">×</button>
+            </div>
+            
+            <div class="dev-panel-body">
+                <!-- Estado actual -->
+                <div class="dev-section">
+                    <h4 class="dev-section-title">📊 Estado Actual</h4>
+                    <div class="dev-state-display" id="dev-state-display">
+                        <div class="dev-state-row">
+                            <span>Puntos:</span>
+                            <span id="dev-current-score">0</span>
+                        </div>
+                        <div class="dev-state-row">
+                            <span>Nivel Click:</span>
+                            <span id="dev-click-level">0</span>
+                        </div>
+                        <div class="dev-state-row">
+                            <span>Nivel Auto:</span>
+                            <span id="dev-auto-level">0</span>
+                        </div>
+                        <div class="dev-state-row">
+                            <span>Prestigio:</span>
+                            <span id="dev-prestige-level">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Puntos -->
+                <div class="dev-section">
+                    <h4 class="dev-section-title">💰 Puntos</h4>
+                    <div class="dev-buttons-grid">
+                        <button class="dev-btn" data-cmd="add-100">+100</button>
+                        <button class="dev-btn" data-cmd="add-1k">+1K</button>
+                        <button class="dev-btn" data-cmd="add-10k">+10K</button>
+                        <button class="dev-btn" data-cmd="add-100k">+100K</button>
+                        <button class="dev-btn" data-cmd="add-1m">+1M</button>
+                        <button class="dev-btn" data-cmd="set-0">= 0</button>
+                    </div>
+                </div>
+                
+                <!-- Progresión -->
+                <div class="dev-section">
+                    <h4 class="dev-section-title">🎯 Progresión</h4>
+                    <div class="dev-buttons-grid">
+                        <button class="dev-btn dev-btn-wide" data-cmd="complete-missions">✅ Completar Misiones</button>
+                        <button class="dev-btn dev-btn-wide" data-cmd="unlock-themes">🎨 Desbloquear Temas</button>
+                        <button class="dev-btn dev-btn-wide" data-cmd="force-prestige">⭐ Forzar Prestigio</button>
+                        <button class="dev-btn dev-btn-wide" data-cmd="max-upgrades">📈 Max Mejoras</button>
+                    </div>
+                </div>
+                
+                <!-- Debug -->
+                <div class="dev-section">
+                    <h4 class="dev-section-title">🔧 Debug</h4>
+                    <div class="dev-buttons-grid">
+                        <button class="dev-btn dev-btn-wide" data-cmd="toggle-eventbus-debug">📡 Toggle EventBus Debug</button>
+                        <button class="dev-btn dev-btn-wide" data-cmd="export-state">💾 Exportar Estado</button>
+                        <button class="dev-btn dev-btn-wide" data-cmd="log-state">📋 Log Estado (Console)</button>
+                    </div>
+                </div>
+                
+                <!-- Reset -->
+                <div class="dev-section">
+                    <h4 class="dev-section-title">⚠️ Peligro</h4>
+                    <div class="dev-buttons-grid">
+                        <button class="dev-btn dev-btn-danger dev-btn-wide" data-cmd="reset-all">🗑️ Reset Total</button>
+                    </div>
+                </div>
+                
+                <!-- Log -->
+                <div class="dev-section">
+                    <h4 class="dev-section-title">📜 Log</h4>
+                    <div class="dev-log" id="dev-log"></div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(panel);
+        this.panelElement = panel;
+        this.logElement = document.getElementById('dev-log');
+        
+        // Event listeners
+        document.getElementById('dev-panel-close')?.addEventListener('click', () => this.toggle());
+        
+        // Delegación de eventos para botones
+        panel.addEventListener('click', (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const cmd = target.dataset.cmd;
+            if (cmd) {
+                this.executeCommand(cmd);
+            }
+        });
+        
+        // Permitir arrastrar el panel
+        this.makeDraggable(panel);
+    }
+    
+    /**
+     * Hacer el panel arrastrable
+     */
+    private makeDraggable(element: HTMLElement): void {
+        const header = element.querySelector('.dev-panel-header') as HTMLElement;
+        if (!header) return;
+        
+        let isDragging = false;
+        let startX = 0, startY = 0;
+        let initialLeft = 0, initialTop = 0;
+        
+        header.addEventListener('mousedown', (e: MouseEvent) => {
+            if ((e.target as HTMLElement).classList.contains('dev-panel-close')) return;
+            
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            
+            const rect = element.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            
+            element.style.cursor = 'grabbing';
+        });
+        
+        document.addEventListener('mousemove', (e: MouseEvent) => {
+            if (!isDragging) return;
+            
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+            
+            element.style.left = `${initialLeft + deltaX}px`;
+            element.style.top = `${initialTop + deltaY}px`;
+            element.style.right = 'auto';
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            element.style.cursor = '';
+        });
+    }
+    
+    /**
+     * Ejecutar un comando
+     */
+    private executeCommand(cmd: string): void {
+        this.commandHistory.push(cmd);
+        
+        switch (cmd) {
+            // Puntos
+            case 'add-100':
+                gameState.addScore(100, 'dev');
+                this.log('Añadidos +100 puntos');
+                break;
+            case 'add-1k':
+                gameState.addScore(1000, 'dev');
+                this.log('Añadidos +1,000 puntos');
+                break;
+            case 'add-10k':
+                gameState.addScore(10000, 'dev');
+                this.log('Añadidos +10,000 puntos');
+                break;
+            case 'add-100k':
+                gameState.addScore(100000, 'dev');
+                this.log('Añadidos +100,000 puntos');
+                break;
+            case 'add-1m':
+                gameState.addScore(1000000, 'dev');
+                this.log('Añadidos +1,000,000 puntos');
+                break;
+            case 'set-0':
+                gameState.set('game.score', 0);
+                this.log('Puntos establecidos a 0');
+                break;
+                
+            // Progresión
+            case 'complete-missions':
+                this.completeMissions();
+                break;
+            case 'unlock-themes':
+                this.unlockAllThemes();
+                break;
+            case 'force-prestige':
+                this.forcePrestige();
+                break;
+            case 'max-upgrades':
+                this.maxUpgrades();
+                break;
+                
+            // Debug
+            case 'toggle-eventbus-debug':
+                const currentDebug = eventBus['debugMode'];
+                eventBus.setDebugMode(!currentDebug);
+                this.log(`EventBus debug: ${!currentDebug ? 'ON' : 'OFF'}`);
+                break;
+            case 'export-state':
+                this.exportState();
+                break;
+            case 'log-state':
+                console.log('=== GAME STATE ===', gameState.getAll());
+                this.log('Estado impreso en consola');
+                break;
+                
+            // Reset
+            case 'reset-all':
+                if (confirm('¿Seguro que quieres resetear TODO el progreso?')) {
+                    saveManager.reset();
+                    gameState.reset();
+                    this.log('⚠️ Progreso reseteado. Recarga la página.');
+                    setTimeout(() => location.reload(), 1000);
+                }
+                break;
+                
+            default:
+                this.log(`Comando desconocido: ${cmd}`);
+        }
+        
+        // Actualizar display después de cada comando
+        this.updateStateDisplay();
+        
+        // Notificar al juego para actualizar UI
+        if (this.gameInstance) {
+            this.gameInstance['updateUI']();
+        }
+    }
+    
+    /**
+     * Completar todas las misiones
+     */
+    private completeMissions(): void {
+        if (!this.gameInstance) {
+            this.log('Error: No hay instancia del juego');
+            return;
+        }
+        
+        // Obtener misiones del juego y completarlas
+        const missions = this.gameInstance['missions'] as Mission[];
+        let completed = 0;
+        
+        missions.forEach(mission => {
+            if (!mission.completed) {
+                mission.progress = mission.target;
+                mission.completed = true;
+                mission.completedAt = Date.now();
+                completed++;
+                
+                // Añadir recompensa
+                gameState.addScore(mission.reward, 'dev');
+            }
+        });
+        
+        // Actualizar IDs completados
+        const completedIds = missions.filter(m => m.completed).map(m => m.id);
+        this.gameInstance['completedMissionIds'] = completedIds;
+        
+        this.log(`✅ Completadas ${completed} misiones`);
+        this.gameInstance['updateMissionsUI']();
+        this.gameInstance['updateMissionsBadge']();
+    }
+    
+    /**
+     * Desbloquear todos los temas
+     */
+    private unlockAllThemes(): void {
+        const progression = gameState.getSection('progression');
+        const allThemeIds = ['neon-violet', 'light', 'cyber-blue', 'fire-red', 'nature-green', 'royal-gold'];
+        
+        progression.unlockedThemes = allThemeIds;
+        gameState.setSection('progression', progression);
+        
+        if (this.gameInstance) {
+            this.gameInstance['progression'] = progression;
+            this.gameInstance['renderThemeSelector']();
+        }
+        
+        this.log('🎨 Todos los temas desbloqueados');
+    }
+    
+    /**
+     * Forzar un prestigio
+     */
+    private forcePrestige(): void {
+        if (!this.gameInstance) {
+            this.log('Error: No hay instancia del juego');
+            return;
+        }
+        
+        this.gameInstance['performPrestige']();
+        this.log('⭐ Prestigio forzado');
+    }
+    
+    /**
+     * Maximizar mejoras
+     */
+    private maxUpgrades(): void {
+        const game = gameState.getSection('game');
+        game.clickUpgradeLevel = 50;
+        game.autoUpgradeLevel = 50;
+        game.pointsPerClick = 51;
+        game.pointsPerSecond = 50;
+        gameState.setSection('game', game);
+        
+        if (this.gameInstance) {
+            this.gameInstance['state'] = game;
+            this.gameInstance['startAutoClicker']();
+        }
+        
+        this.log('📈 Mejoras maximizadas (nivel 50)');
+    }
+    
+    /**
+     * Exportar estado a JSON
+     */
+    private exportState(): void {
+        const state = gameState.getAll();
+        const json = JSON.stringify(state, null, 2);
+        
+        // Copiar al clipboard
+        navigator.clipboard.writeText(json).then(() => {
+            this.log('💾 Estado copiado al portapapeles');
+        }).catch(() => {
+            // Fallback: descargar archivo
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `clicker-game-state-${Date.now()}.json`;
+            a.click();
+            this.log('💾 Estado descargado como archivo');
+        });
+    }
+    
+    /**
+     * Actualizar display de estado
+     */
+    private updateStateDisplay(): void {
+        const scoreEl = document.getElementById('dev-current-score');
+        const clickEl = document.getElementById('dev-click-level');
+        const autoEl = document.getElementById('dev-auto-level');
+        const prestigeEl = document.getElementById('dev-prestige-level');
+        
+        if (scoreEl) scoreEl.textContent = this.formatNumber(gameState.get<number>('game.score') ?? 0);
+        if (clickEl) clickEl.textContent = String(gameState.get<number>('game.clickUpgradeLevel') ?? 0);
+        if (autoEl) autoEl.textContent = String(gameState.get<number>('game.autoUpgradeLevel') ?? 0);
+        if (prestigeEl) prestigeEl.textContent = String(gameState.get<number>('prestige.level') ?? 0);
+    }
+    
+    /**
+     * Formatear número
+     */
+    private formatNumber(num: number): string {
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return num.toString();
+    }
+    
+    /**
+     * Añadir mensaje al log
+     */
+    private log(message: string): void {
+        const time = new Date().toLocaleTimeString();
+        const entry = `[${time}] ${message}`;
+        
+        console.log(`[DevPanel] ${message}`);
+        
+        if (this.logElement) {
+            const line = document.createElement('div');
+            line.className = 'dev-log-entry';
+            line.textContent = entry;
+            this.logElement.appendChild(line);
+            this.logElement.scrollTop = this.logElement.scrollHeight;
+            
+            // Limitar a 50 entradas
+            while (this.logElement.children.length > 50) {
+                this.logElement.removeChild(this.logElement.firstChild!);
+            }
+        }
+    }
+}
+
+// Instancia global del DevPanel
+const devPanel = DevPanel.getInstance();
+
+// ============================================
+// MICRO-ANIMACIONES
+// ============================================
+
+/**
+ * Configuración de una partícula de click
+ */
+interface ClickParticleConfig {
+    x: number;
+    y: number;
+    text: string;
+    type: 'normal' | 'combo' | 'mega';
+    rotation?: number;
+}
+
+/**
+ * ============================================
+ * MICRO ANIMATIONS MANAGER
+ * ============================================
+ * 
+ * Sistema de micro-animaciones para feedback visual.
+ * Incluye:
+ * - Números flotantes con posición variable
+ * - Partículas decorativas (estrellas)
+ * - Efectos de combo
+ * - Animaciones de valores
+ * 
+ * Respeta la configuración de animaciones del usuario.
+ */
+class MicroAnimations {
+    private static instance: MicroAnimations;
+    
+    // Contenedor de partículas
+    private container: HTMLElement | null = null;
+    
+    // Estado de combo
+    private comboCount: number = 0;
+    private comboTimeout: number | null = null;
+    private lastClickTime: number = 0;
+    
+    // Referencia al botón de click
+    private clickButton: HTMLElement | null = null;
+    private comboIndicator: HTMLElement | null = null;
+    
+    // Configuración
+    private readonly COMBO_THRESHOLD_MS = 300; // ms entre clicks para combo
+    private readonly COMBO_DECAY_MS = 1000; // ms para perder el combo
+    
+    private constructor() {
+        this.init();
+    }
+    
+    static getInstance(): MicroAnimations {
+        if (!MicroAnimations.instance) {
+            MicroAnimations.instance = new MicroAnimations();
+        }
+        return MicroAnimations.instance;
+    }
+    
+    /**
+     * Inicializar el sistema
+     */
+    private init(): void {
+        this.container = document.getElementById('particles-container');
+        this.clickButton = document.getElementById('click-button');
+        
+        // Crear indicador de combo
+        if (this.clickButton) {
+            this.comboIndicator = document.createElement('div');
+            this.comboIndicator.className = 'combo-indicator';
+            this.comboIndicator.textContent = 'COMBO x1';
+            this.clickButton.style.position = 'relative';
+            this.clickButton.appendChild(this.comboIndicator);
+        }
+    }
+    
+    /**
+     * Verificar si las animaciones están habilitadas
+     */
+    private isEnabled(): boolean {
+        return !document.body.classList.contains('no-animations');
+    }
+    
+    /**
+     * Crear partícula de puntos flotante
+     */
+    createClickParticle(config: ClickParticleConfig): void {
+        if (!this.isEnabled() || !this.container) return;
+        
+        const particle = document.createElement('div');
+        particle.className = `click-particle ${config.type}`;
+        particle.textContent = config.text;
+        
+        // Posición con variación aleatoria
+        const offsetX = (Math.random() - 0.5) * 60;
+        const offsetY = (Math.random() - 0.5) * 20;
+        
+        particle.style.left = `${config.x + offsetX}px`;
+        particle.style.top = `${config.y + offsetY}px`;
+        particle.style.setProperty('--rotation', `${(Math.random() - 0.5) * 20}deg`);
+        
+        this.container.appendChild(particle);
+        
+        // Eliminar después de la animación
+        setTimeout(() => particle.remove(), 800);
+    }
+    
+    /**
+     * Crear estrellas decorativas
+     */
+    createStars(x: number, y: number, count: number = 3): void {
+        if (!this.isEnabled() || !this.container) return;
+        
+        const emojis = ['✨', '⭐', '💫', '🌟'];
+        
+        for (let i = 0; i < count; i++) {
+            const star = document.createElement('div');
+            star.className = 'click-star';
+            star.textContent = emojis[Math.floor(Math.random() * emojis.length)] ?? '✨';
+            
+            // Posición en círculo alrededor del click
+            const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+            const distance = 30 + Math.random() * 20;
+            const tx = Math.cos(angle) * distance;
+            const ty = Math.sin(angle) * distance;
+            
+            star.style.left = `${x}px`;
+            star.style.top = `${y}px`;
+            star.style.setProperty('--tx', `${tx}px`);
+            star.style.setProperty('--ty', `${ty}px`);
+            
+            this.container.appendChild(star);
+            
+            setTimeout(() => star.remove(), 600);
+        }
+    }
+    
+    /**
+     * Manejar click y actualizar combo
+     */
+    handleClick(x: number, y: number, points: number): void {
+        if (!this.isEnabled()) return;
+        
+        const now = Date.now();
+        const timeSinceLastClick = now - this.lastClickTime;
+        
+        // Actualizar combo
+        if (timeSinceLastClick < this.COMBO_THRESHOLD_MS) {
+            this.comboCount++;
+        } else if (timeSinceLastClick > this.COMBO_DECAY_MS) {
+            this.comboCount = 1;
+        }
+        
+        this.lastClickTime = now;
+        
+        // Determinar tipo de partícula
+        let particleType: 'normal' | 'combo' | 'mega' = 'normal';
+        let displayText = `+${this.formatNumber(points)}`;
+        
+        if (this.comboCount >= 10) {
+            particleType = 'mega';
+            displayText = `🔥 +${this.formatNumber(points)}`;
+        } else if (this.comboCount >= 5) {
+            particleType = 'combo';
+            displayText = `⚡ +${this.formatNumber(points)}`;
+        }
+        
+        // Crear partícula
+        this.createClickParticle({
+            x, y, text: displayText, type: particleType
+        });
+        
+        // Crear estrellas si es combo
+        if (this.comboCount >= 3) {
+            this.createStars(x, y, Math.min(this.comboCount, 6));
+        }
+        
+        // Actualizar indicador de combo
+        this.updateComboIndicator();
+        
+        // Efecto de pulso en el botón
+        this.pulseButton();
+        
+        // Resetear combo después de inactividad
+        if (this.comboTimeout) {
+            clearTimeout(this.comboTimeout);
+        }
+        this.comboTimeout = window.setTimeout(() => {
+            this.comboCount = 0;
+            this.updateComboIndicator();
+            this.clickButton?.classList.remove('combo-mode');
+        }, this.COMBO_DECAY_MS);
+    }
+    
+    /**
+     * Actualizar indicador de combo
+     */
+    private updateComboIndicator(): void {
+        if (!this.comboIndicator || !this.clickButton) return;
+        
+        if (this.comboCount >= 3) {
+            this.comboIndicator.textContent = `COMBO x${this.comboCount}`;
+            this.comboIndicator.classList.add('show');
+            this.clickButton.classList.add('combo-mode');
+        } else {
+            this.comboIndicator.classList.remove('show');
+            this.clickButton.classList.remove('combo-mode');
+        }
+    }
+    
+    /**
+     * Efecto de pulso en el botón
+     */
+    private pulseButton(): void {
+        if (!this.clickButton || !this.isEnabled()) return;
+        
+        // Efecto ripple
+        this.clickButton.classList.remove('ripple');
+        void this.clickButton.offsetWidth; // Forzar reflow
+        this.clickButton.classList.add('ripple');
+        
+        // Efecto pulse
+        this.clickButton.classList.remove('pulse');
+        void this.clickButton.offsetWidth;
+        this.clickButton.classList.add('pulse');
+        
+        setTimeout(() => {
+            this.clickButton?.classList.remove('ripple', 'pulse');
+        }, 400);
+    }
+    
+    /**
+     * Animar actualización de valor (score, stats)
+     */
+    animateValueUpdate(element: HTMLElement, className: string = 'updated'): void {
+        if (!this.isEnabled()) return;
+        
+        element.classList.remove(className);
+        void element.offsetWidth;
+        element.classList.add(className);
+        
+        setTimeout(() => element.classList.remove(className), 200);
+    }
+    
+    /**
+     * Animar compra exitosa
+     */
+    animatePurchase(card: HTMLElement): void {
+        if (!this.isEnabled()) return;
+        
+        card.classList.add('purchased-animation');
+        setTimeout(() => card.classList.remove('purchased-animation'), 500);
+    }
+    
+    /**
+     * Mostrar animación de nivel subido
+     */
+    showLevelUp(newLevel: number): void {
+        if (!this.isEnabled()) return;
+        
+        const flash = document.createElement('div');
+        flash.className = 'level-up-flash';
+        flash.textContent = `🎉 NIVEL ${newLevel}!`;
+        
+        document.body.appendChild(flash);
+        
+        setTimeout(() => flash.remove(), 1000);
+    }
+    
+    /**
+     * Obtener el combo actual
+     */
+    getComboCount(): number {
+        return this.comboCount;
+    }
+    
+    /**
+     * Formatear número
+     */
+    private formatNumber(num: number): string {
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return num.toString();
+    }
+}
+
+// Instancia global
+const microAnimations = MicroAnimations.getInstance();
+
+// ============================================
+// IA DE ANÁLISIS DEL JUGADOR
+// ============================================
+
+/**
+ * Tipos de tips que puede mostrar la IA
+ */
+type TipType = 'suggestion' | 'achievement' | 'warning' | 'motivation';
+
+/**
+ * Configuración de un tip
+ */
+interface PlayerTip {
+    type: TipType;
+    icon: string;
+    message: string;
+    priority: number; // Mayor = más importante
+}
+
+/**
+ * Análisis del comportamiento del jugador
+ */
+interface PlayerBehavior {
+    cps: number;                    // Clicks por segundo actual
+    avgCps: number;                 // CPS promedio de la sesión
+    peakCps: number;                // Mejor CPS registrado
+    sessionDuration: number;        // Duración de sesión en segundos
+    totalClicks: number;            // Clicks totales
+    totalPoints: number;            // Puntos totales
+    upgradeClickLevel: number;      // Nivel de mejora click
+    upgradeAutoLevel: number;       // Nivel de mejora auto
+    idleTime: number;               // Tiempo inactivo en segundos
+    purchasedItems: number;         // Items comprados
+    completedMissions: number;      // Misiones completadas
+    prestigeLevel: number;          // Nivel de prestigio
+}
+
+/**
+ * ============================================
+ * PLAYER ANALYZER - IA Simple de Análisis
+ * ============================================
+ * 
+ * Sistema que analiza el comportamiento del jugador
+ * y muestra sugerencias/feedback contextual.
+ * 
+ * Características:
+ * - Análisis de CPS (clicks por segundo)
+ * - Detección de tiempo de inactividad
+ * - Sugerencias de mejoras
+ * - Mensajes motivacionales
+ * - Celebración de logros
+ * 
+ * NO modifica el gameplay, solo feedback textual.
+ */
+class PlayerAnalyzer {
+    private static instance: PlayerAnalyzer;
+    
+    // Elementos del DOM
+    private panel: HTMLElement | null = null;
+    private messageEl: HTMLElement | null = null;
+    private closeBtn: HTMLElement | null = null;
+    
+    // Estado interno
+    private clickHistory: number[] = []; // Timestamps de clicks recientes
+    private sessionStartTime: number = Date.now();
+    private lastActivityTime: number = Date.now();
+    private lastTipTime: number = 0;
+    private tipQueue: PlayerTip[] = [];
+    private isShowing: boolean = false;
+    
+    // Referencia al juego
+    private gameInstance: ClickerGame | null = null;
+    
+    // Configuración
+    private readonly CPS_WINDOW_MS = 5000; // Ventana para calcular CPS
+    private readonly MIN_TIP_INTERVAL_MS = 30000; // Mínimo entre tips
+    private readonly ANALYSIS_INTERVAL_MS = 10000; // Cada cuánto analizar
+    
+    // Intervalo de análisis
+    private analysisInterval: number | null = null;
+    
+    private constructor() {
+        this.init();
+    }
+    
+    static getInstance(): PlayerAnalyzer {
+        if (!PlayerAnalyzer.instance) {
+            PlayerAnalyzer.instance = new PlayerAnalyzer();
+        }
+        return PlayerAnalyzer.instance;
+    }
+    
+    /**
+     * Establecer referencia al juego
+     */
+    setGameInstance(game: ClickerGame): void {
+        this.gameInstance = game;
+    }
+    
+    /**
+     * Inicializar el sistema
+     */
+    private init(): void {
+        this.panel = document.getElementById('ai-tips-panel');
+        this.messageEl = document.getElementById('ai-tips-message');
+        this.closeBtn = document.getElementById('ai-tips-close');
+        
+        // Event listener para cerrar
+        this.closeBtn?.addEventListener('click', () => this.hideTip());
+        
+        // Iniciar análisis periódico
+        this.startAnalysis();
+        
+        // Escuchar eventos del juego
+        this.setupEventListeners();
+    }
+    
+    /**
+     * Configurar listeners del Event Bus
+     */
+    private setupEventListeners(): void {
+        // Registrar cada click
+        eventBus.on('click:performed', () => {
+            this.recordClick();
+            this.lastActivityTime = Date.now();
+        });
+        
+        // Celebrar compras
+        eventBus.on('upgrade:purchased', (data) => {
+            if (data.newLevel === 1) {
+                this.queueTip({
+                    type: 'achievement',
+                    icon: '🎉',
+                    message: `¡Primera mejora de <span class="highlight">${data.upgradeType === 'click' ? 'Click' : 'Auto-Clicker'}</span>! Vas por buen camino.`,
+                    priority: 8
+                });
+            } else if (data.newLevel % 10 === 0) {
+                this.queueTip({
+                    type: 'achievement',
+                    icon: '🏆',
+                    message: `¡Nivel <span class="highlight">${data.newLevel}</span> en ${data.upgradeType === 'click' ? 'Click Potenciado' : 'Auto-Clicker'}! Impresionante.`,
+                    priority: 7
+                });
+            }
+        });
+        
+        // Celebrar compras de tienda
+        eventBus.on('shop:item-purchased', (data) => {
+            this.queueTip({
+                type: 'achievement',
+                icon: '🛒',
+                message: `¡Compraste <span class="highlight">${data.item.name}</span>! Buena elección.`,
+                priority: 6
+            });
+        });
+        
+        // Prestigio
+        eventBus.on('prestige:performed', (data) => {
+            this.queueTip({
+                type: 'achievement',
+                icon: '⭐',
+                message: `¡Prestigio nivel <span class="highlight">${data.newLevel}</span>! Eres un verdadero maestro del click.`,
+                priority: 10
+            });
+        });
+    }
+    
+    /**
+     * Registrar un click
+     */
+    recordClick(): void {
+        const now = Date.now();
+        this.clickHistory.push(now);
+        
+        // Limpiar clicks antiguos
+        const windowStart = now - this.CPS_WINDOW_MS;
+        this.clickHistory = this.clickHistory.filter(t => t > windowStart);
+    }
+    
+    /**
+     * Calcular CPS actual
+     */
+    private calculateCPS(): number {
+        const now = Date.now();
+        const windowStart = now - this.CPS_WINDOW_MS;
+        const recentClicks = this.clickHistory.filter(t => t > windowStart);
+        return (recentClicks.length / this.CPS_WINDOW_MS) * 1000;
+    }
+    
+    /**
+     * Obtener comportamiento actual del jugador
+     */
+    private getBehavior(): PlayerBehavior {
+        const game = this.gameInstance;
+        const state = game ? game['state'] : null;
+        const stats = game ? game['stats'] : null;
+        const prestige = game ? game['prestige'] : null;
+        
+        return {
+            cps: this.calculateCPS(),
+            avgCps: stats ? (stats.totalClicks / Math.max(stats.totalTimePlayed, 1)) : 0,
+            peakCps: stats?.bestClickStreak ?? 0,
+            sessionDuration: (Date.now() - this.sessionStartTime) / 1000,
+            totalClicks: stats?.totalClicks ?? 0,
+            totalPoints: stats?.totalPointsEarned ?? 0,
+            upgradeClickLevel: state?.clickUpgradeLevel ?? 0,
+            upgradeAutoLevel: state?.autoUpgradeLevel ?? 0,
+            idleTime: (Date.now() - this.lastActivityTime) / 1000,
+            purchasedItems: state?.purchasedItems?.length ?? 0,
+            completedMissions: game ? game['completedMissionIds']?.length ?? 0 : 0,
+            prestigeLevel: prestige?.level ?? 0
+        };
+    }
+    
+    /**
+     * Iniciar análisis periódico
+     */
+    private startAnalysis(): void {
+        // Primer análisis después de 15 segundos
+        setTimeout(() => {
+            this.analyze();
+        }, 15000);
+        
+        // Análisis periódico
+        this.analysisInterval = window.setInterval(() => {
+            this.analyze();
+        }, this.ANALYSIS_INTERVAL_MS);
+    }
+    
+    /**
+     * Analizar comportamiento y generar tips
+     */
+    private analyze(): void {
+        const behavior = this.getBehavior();
+        const now = Date.now();
+        
+        // No mostrar tips muy seguido
+        if (now - this.lastTipTime < this.MIN_TIP_INTERVAL_MS && !this.tipQueue.length) {
+            return;
+        }
+        
+        // Analizar diferentes aspectos
+        this.analyzeIdleTime(behavior);
+        this.analyzeUpgrades(behavior);
+        this.analyzeProgress(behavior);
+        this.analyzePerformance(behavior);
+        
+        // Mostrar tip de mayor prioridad
+        this.showNextTip();
+    }
+    
+    /**
+     * Analizar tiempo de inactividad
+     */
+    private analyzeIdleTime(behavior: PlayerBehavior): void {
+        if (behavior.idleTime > 120) { // 2 minutos
+            this.queueTip({
+                type: 'motivation',
+                icon: '💤',
+                message: '¿Sigues ahí? ¡Tus puntos te extrañan! Haz click para seguir progresando.',
+                priority: 5
+            });
+        } else if (behavior.idleTime > 60 && behavior.upgradeAutoLevel === 0) {
+            this.queueTip({
+                type: 'suggestion',
+                icon: '💡',
+                message: 'Tip: Compra un <span class="highlight">Auto-Clicker</span> para ganar puntos mientras descansas.',
+                priority: 6
+            });
+        }
+    }
+    
+    /**
+     * Analizar mejoras
+     */
+    private analyzeUpgrades(behavior: PlayerBehavior): void {
+        const game = this.gameInstance;
+        if (!game) return;
+        
+        const score = game['state']?.score ?? 0;
+        const clickPrice = this.calculateUpgradePrice(behavior.upgradeClickLevel, 10, 1.5);
+        const autoPrice = this.calculateUpgradePrice(behavior.upgradeAutoLevel, 50, 1.8);
+        
+        // Sugerir mejora de click si puede comprarla
+        if (score >= clickPrice && behavior.upgradeClickLevel < behavior.upgradeAutoLevel) {
+            this.queueTip({
+                type: 'suggestion',
+                icon: '⚡',
+                message: `¡Puedes mejorar tu <span class="highlight">Click Potenciado</span>! Cuesta ${this.formatNumber(clickPrice)} puntos.`,
+                priority: 4
+            });
+        }
+        
+        // Sugerir auto-clicker si no tiene
+        if (behavior.upgradeAutoLevel === 0 && score >= autoPrice * 0.8) {
+            this.queueTip({
+                type: 'suggestion',
+                icon: '🤖',
+                message: 'Casi tienes suficiente para un <span class="highlight">Auto-Clicker</span>. ¡Sigue así!',
+                priority: 5
+            });
+        }
+        
+        // Balance entre mejoras
+        if (behavior.upgradeClickLevel > behavior.upgradeAutoLevel + 5) {
+            this.queueTip({
+                type: 'suggestion',
+                icon: '⚖️',
+                message: 'Tu Click está muy fuerte, pero considera mejorar el <span class="highlight">Auto-Clicker</span> para ingresos pasivos.',
+                priority: 3
+            });
+        }
+    }
+    
+    /**
+     * Analizar progreso general
+     */
+    private analyzeProgress(behavior: PlayerBehavior): void {
+        // Primeros logros
+        if (behavior.totalClicks >= 100 && behavior.totalClicks < 150) {
+            this.queueTip({
+                type: 'achievement',
+                icon: '💯',
+                message: '¡<span class="highlight">100 clicks</span>! Eres oficialmente un clicker.',
+                priority: 7
+            });
+        }
+        
+        if (behavior.totalClicks >= 1000 && behavior.totalClicks < 1050) {
+            this.queueTip({
+                type: 'achievement',
+                icon: '🎯',
+                message: '¡<span class="highlight">1,000 clicks</span>! Tu dedo es una máquina.',
+                priority: 7
+            });
+        }
+        
+        // Tiempo jugado
+        if (behavior.sessionDuration >= 300 && behavior.sessionDuration < 330) { // 5 minutos
+            this.queueTip({
+                type: 'motivation',
+                icon: '⏰',
+                message: '¡Llevas <span class="highlight">5 minutos</span> jugando! Recuerda descansar.',
+                priority: 4
+            });
+        }
+        
+        // Misiones
+        if (behavior.completedMissions === 0 && behavior.totalClicks > 50) {
+            this.queueTip({
+                type: 'suggestion',
+                icon: '📋',
+                message: '¿Ya revisaste las <span class="highlight">Misiones</span>? Puedes ganar recompensas extra.',
+                priority: 5
+            });
+        }
+    }
+    
+    /**
+     * Analizar rendimiento
+     */
+    private analyzePerformance(behavior: PlayerBehavior): void {
+        // CPS alto
+        if (behavior.cps > 5) {
+            this.queueTip({
+                type: 'achievement',
+                icon: '🔥',
+                message: `¡Increíble! <span class="highlight">${behavior.cps.toFixed(1)} CPS</span>. ¡Eres un rayo!`,
+                priority: 6
+            });
+        }
+        
+        // Nuevo récord de CPS
+        if (behavior.cps > behavior.peakCps && behavior.cps > 3) {
+            this.queueTip({
+                type: 'achievement',
+                icon: '🏅',
+                message: `¡Nuevo récord personal de <span class="highlight">${behavior.cps.toFixed(1)} CPS</span>!`,
+                priority: 8
+            });
+        }
+    }
+    
+    /**
+     * Añadir tip a la cola
+     */
+    private queueTip(tip: PlayerTip): void {
+        // Evitar duplicados recientes
+        const isDuplicate = this.tipQueue.some(t => t.message === tip.message);
+        if (isDuplicate) return;
+        
+        this.tipQueue.push(tip);
+        
+        // Ordenar por prioridad
+        this.tipQueue.sort((a, b) => b.priority - a.priority);
+        
+        // Limitar cola
+        if (this.tipQueue.length > 5) {
+            this.tipQueue = this.tipQueue.slice(0, 5);
+        }
+    }
+    
+    /**
+     * Mostrar siguiente tip de la cola
+     */
+    private showNextTip(): void {
+        if (this.isShowing || this.tipQueue.length === 0) return;
+        
+        const now = Date.now();
+        if (now - this.lastTipTime < this.MIN_TIP_INTERVAL_MS) return;
+        
+        const tip = this.tipQueue.shift();
+        if (tip) {
+            this.showTip(tip);
+        }
+    }
+    
+    /**
+     * Mostrar un tip
+     */
+    private showTip(tip: PlayerTip): void {
+        if (!this.panel || !this.messageEl) return;
+        
+        this.isShowing = true;
+        this.lastTipTime = Date.now();
+        
+        // Actualizar contenido
+        this.messageEl.innerHTML = `<span class="tip-icon">${tip.icon}</span>${tip.message}`;
+        
+        // Actualizar clase de tipo
+        this.panel.className = `ai-tips-panel tip-${tip.type}`;
+        
+        // Auto-ocultar después de 8 segundos
+        setTimeout(() => {
+            this.hideTip();
+        }, 8000);
+    }
+    
+    /**
+     * Ocultar tip actual
+     */
+    hideTip(): void {
+        if (!this.panel) return;
+        
+        this.panel.classList.add('hidden');
+        this.isShowing = false;
+        
+        // Mostrar siguiente si hay
+        setTimeout(() => {
+            this.showNextTip();
+        }, 2000);
+    }
+    
+    /**
+     * Calcular precio de mejora (simplificado)
+     */
+    private calculateUpgradePrice(level: number, base: number, multiplier: number): number {
+        return Math.floor(base * Math.pow(multiplier, level));
+    }
+    
+    /**
+     * Formatear número
+     */
+    private formatNumber(num: number): string {
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return num.toString();
+    }
+    
+    /**
+     * Detener el análisis
+     */
+    stop(): void {
+        if (this.analysisInterval) {
+            clearInterval(this.analysisInterval);
+        }
+    }
+}
+
+// Instancia global
+const playerAnalyzer = PlayerAnalyzer.getInstance();
 
 // ============================================
 // CONSTANTES Y CONFIGURACIÓN
@@ -2268,7 +3917,7 @@ class ClickerGame {
         });
         
         // Click en el botón principal
-        this.elements.clickButton.addEventListener('click', () => this.handleClick());
+        this.elements.clickButton.addEventListener('click', (e: MouseEvent) => this.handleClick(e));
         
         // Comprar mejora de click
         this.elements.clickUpgradeButton.addEventListener('click', () => this.buyClickUpgrade());
@@ -3273,7 +4922,7 @@ class ClickerGame {
     /**
      * Maneja el click en el botón principal
      */
-    private handleClick(): void {
+    private handleClick(event?: MouseEvent): void {
         // Guardar puntuación anterior
         const previousScore = this.state.score;
         
@@ -3302,8 +4951,24 @@ class ClickerGame {
             source: 'click'
         });
         
-        // Mostrar feedback visual
+        // Mostrar feedback visual con micro-animaciones
         this.showClickFeedback();
+        
+        // Micro-animaciones avanzadas
+        if (event) {
+            microAnimations.handleClick(event.clientX, event.clientY, points);
+        } else {
+            // Fallback si no hay evento (para compatibilidad)
+            const buttonRect = this.elements.clickButton.getBoundingClientRect();
+            microAnimations.handleClick(
+                buttonRect.left + buttonRect.width / 2,
+                buttonRect.top + buttonRect.height / 2,
+                points
+            );
+        }
+        
+        // Animar actualización del score
+        microAnimations.animateValueUpdate(this.elements.score, 'updated');
         
         // Actualizar UI y guardar
         this.updateUI();
@@ -4649,8 +6314,49 @@ document.addEventListener('DOMContentLoaded', () => {
     // Crear instancia del juego
     const game = new ClickerGame();
     
+    // Configurar DevPanel con referencia al juego
+    devPanel.setGameInstance(game);
+    
+    // Configurar PlayerAnalyzer con referencia al juego
+    playerAnalyzer.setGameInstance(game);
+    
+    // Sincronizar GameStateManager con el estado del juego
+    gameState.setAll({
+        game: game['state'],
+        settings: game['settings'],
+        profile: game['profile'],
+        stats: game['stats'],
+        missions: {
+            completedIds: game['completedMissionIds']
+        },
+        prestige: game['prestige'],
+        progression: game['progression']
+    });
+    
+    // Suscribirse a cambios del GameStateManager para sincronizar
+    gameState.subscribe('game.score', (newValue) => {
+        game['state'].score = newValue as number;
+        game['updateUI']();
+    });
+    
+    // Definir tipo para window extendido
+    interface GameWindow {
+        game: ClickerGame;
+        gameState: GameStateManager;
+        devPanel: DevPanel;
+        microAnimations: MicroAnimations;
+        playerAnalyzer: PlayerAnalyzer;
+    }
+    
     // Exponer para debugging (opcional)
-    (window as unknown as { game: ClickerGame }).game = game;
+    const gameWindow = window as unknown as GameWindow;
+    gameWindow.game = game;
+    gameWindow.gameState = gameState;
+    gameWindow.devPanel = devPanel;
+    gameWindow.microAnimations = microAnimations;
+    gameWindow.playerAnalyzer = playerAnalyzer;
     
     console.log('🎮 Clicker Game iniciado!');
+    console.log('💡 Dev Mode: Presiona Ctrl+Shift+D para abrir el panel de desarrollador');
+    console.log('🤖 IA Asistente activa - te dará tips mientras juegas');
 });
