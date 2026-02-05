@@ -68,6 +68,22 @@ class ClickerGame {
     
     // Referencias a elementos del DOM
     private elements: {
+        // Pantallas
+        mainMenu: HTMLElement;
+        gameScreen: HTMLElement;
+        shopScreen: HTMLElement;
+        profileScreen: HTMLElement;
+        settingsScreen: HTMLElement;
+        // Menú
+        playButton: HTMLButtonElement;
+        shopButton: HTMLButtonElement;
+        profileButton: HTMLButtonElement;
+        settingsButton: HTMLButtonElement;
+        // Perfil stats
+        profileTotalScore: HTMLElement;
+        profileCps: HTMLElement;
+        profileUpgrades: HTMLElement;
+        // Juego
         score: HTMLElement;
         pointsPerClick: HTMLElement;
         pointsPerSecond: HTMLElement;
@@ -80,12 +96,15 @@ class ClickerGame {
         autoUpgradePrice: HTMLElement;
         autoUpgradeLevel: HTMLElement;
         resetButton: HTMLButtonElement;
+        menuButton: HTMLButtonElement;
         upgradeClickCard: HTMLElement;
         upgradeAutoCard: HTMLElement;
         // Modal de confirmación
         confirmModal: HTMLElement;
         modalCancel: HTMLButtonElement;
         modalConfirm: HTMLButtonElement;
+        // Botones volver
+        backButtons: NodeListOf<HTMLButtonElement>;
     };
     
     // ID del intervalo del auto-clicker
@@ -132,6 +151,22 @@ class ClickerGame {
      */
     private getElements() {
         return {
+            // Pantallas
+            mainMenu: document.getElementById('main-menu')!,
+            gameScreen: document.getElementById('game-screen')!,
+            shopScreen: document.getElementById('shop-screen')!,
+            profileScreen: document.getElementById('profile-screen')!,
+            settingsScreen: document.getElementById('settings-screen')!,
+            // Menú
+            playButton: document.getElementById('play-button') as HTMLButtonElement,
+            shopButton: document.getElementById('shop-button') as HTMLButtonElement,
+            profileButton: document.getElementById('profile-button') as HTMLButtonElement,
+            settingsButton: document.getElementById('settings-button') as HTMLButtonElement,
+            // Perfil stats
+            profileTotalScore: document.getElementById('profile-total-score')!,
+            profileCps: document.getElementById('profile-cps')!,
+            profileUpgrades: document.getElementById('profile-upgrades')!,
+            // Juego
             score: document.getElementById('score')!,
             pointsPerClick: document.getElementById('points-per-click')!,
             pointsPerSecond: document.getElementById('points-per-second')!,
@@ -144,12 +179,15 @@ class ClickerGame {
             autoUpgradePrice: document.getElementById('upgrade-auto-price')!,
             autoUpgradeLevel: document.getElementById('upgrade-auto-level')!,
             resetButton: document.getElementById('reset-button') as HTMLButtonElement,
+            menuButton: document.getElementById('menu-button') as HTMLButtonElement,
             upgradeClickCard: document.getElementById('upgrade-click')!,
             upgradeAutoCard: document.getElementById('upgrade-auto')!,
             // Modal de confirmación
             confirmModal: document.getElementById('confirm-modal')!,
             modalCancel: document.getElementById('modal-cancel') as HTMLButtonElement,
-            modalConfirm: document.getElementById('modal-confirm') as HTMLButtonElement
+            modalConfirm: document.getElementById('modal-confirm') as HTMLButtonElement,
+            // Botones volver
+            backButtons: document.querySelectorAll('.back-btn') as NodeListOf<HTMLButtonElement>
         };
     }
 
@@ -157,6 +195,18 @@ class ClickerGame {
      * Configura todos los event listeners
      */
     private setupEventListeners(): void {
+        // Navegación menú principal
+        this.elements.playButton.addEventListener('click', () => this.showScreen('game'));
+        this.elements.shopButton.addEventListener('click', () => this.showScreen('shop'));
+        this.elements.profileButton.addEventListener('click', () => this.showScreen('profile'));
+        this.elements.settingsButton.addEventListener('click', () => this.showScreen('settings'));
+        this.elements.menuButton.addEventListener('click', () => this.showScreen('menu'));
+        
+        // Botones de volver
+        this.elements.backButtons.forEach(btn => {
+            btn.addEventListener('click', () => this.showScreen('menu'));
+        });
+        
         // Click en el botón principal
         this.elements.clickButton.addEventListener('click', () => this.handleClick());
         
@@ -182,6 +232,53 @@ class ClickerGame {
         
         // Guardar antes de cerrar la página
         window.addEventListener('beforeunload', () => this.saveProgress());
+    }
+
+    /**
+     * Oculta todas las pantallas
+     */
+    private hideAllScreens(): void {
+        this.elements.mainMenu.classList.add('hidden');
+        this.elements.gameScreen.classList.add('hidden');
+        this.elements.shopScreen.classList.add('hidden');
+        this.elements.profileScreen.classList.add('hidden');
+        this.elements.settingsScreen.classList.add('hidden');
+    }
+
+    /**
+     * Muestra una pantalla específica
+     */
+    private showScreen(screen: 'menu' | 'game' | 'shop' | 'profile' | 'settings'): void {
+        this.hideAllScreens();
+        
+        switch (screen) {
+            case 'menu':
+                this.elements.mainMenu.classList.remove('hidden');
+                this.saveProgress();
+                break;
+            case 'game':
+                this.elements.gameScreen.classList.remove('hidden');
+                break;
+            case 'shop':
+                this.elements.shopScreen.classList.remove('hidden');
+                break;
+            case 'profile':
+                this.updateProfileStats();
+                this.elements.profileScreen.classList.remove('hidden');
+                break;
+            case 'settings':
+                this.elements.settingsScreen.classList.remove('hidden');
+                break;
+        }
+    }
+
+    /**
+     * Actualiza las estadísticas del perfil
+     */
+    private updateProfileStats(): void {
+        this.elements.profileTotalScore.textContent = this.formatNumber(this.state.score);
+        this.elements.profileCps.textContent = this.state.pointsPerSecond.toString();
+        this.elements.profileUpgrades.textContent = (this.state.clickUpgradeLevel + this.state.autoUpgradeLevel).toString();
     }
 
     /**

@@ -69,6 +69,22 @@ class ClickerGame {
      */
     getElements() {
         return {
+            // Pantallas
+            mainMenu: document.getElementById('main-menu'),
+            gameScreen: document.getElementById('game-screen'),
+            shopScreen: document.getElementById('shop-screen'),
+            profileScreen: document.getElementById('profile-screen'),
+            settingsScreen: document.getElementById('settings-screen'),
+            // Menú
+            playButton: document.getElementById('play-button'),
+            shopButton: document.getElementById('shop-button'),
+            profileButton: document.getElementById('profile-button'),
+            settingsButton: document.getElementById('settings-button'),
+            // Perfil stats
+            profileTotalScore: document.getElementById('profile-total-score'),
+            profileCps: document.getElementById('profile-cps'),
+            profileUpgrades: document.getElementById('profile-upgrades'),
+            // Juego
             score: document.getElementById('score'),
             pointsPerClick: document.getElementById('points-per-click'),
             pointsPerSecond: document.getElementById('points-per-second'),
@@ -81,18 +97,31 @@ class ClickerGame {
             autoUpgradePrice: document.getElementById('upgrade-auto-price'),
             autoUpgradeLevel: document.getElementById('upgrade-auto-level'),
             resetButton: document.getElementById('reset-button'),
+            menuButton: document.getElementById('menu-button'),
             upgradeClickCard: document.getElementById('upgrade-click'),
             upgradeAutoCard: document.getElementById('upgrade-auto'),
             // Modal de confirmación
             confirmModal: document.getElementById('confirm-modal'),
             modalCancel: document.getElementById('modal-cancel'),
-            modalConfirm: document.getElementById('modal-confirm')
+            modalConfirm: document.getElementById('modal-confirm'),
+            // Botones volver
+            backButtons: document.querySelectorAll('.back-btn')
         };
     }
     /**
      * Configura todos los event listeners
      */
     setupEventListeners() {
+        // Navegación menú principal
+        this.elements.playButton.addEventListener('click', () => this.showScreen('game'));
+        this.elements.shopButton.addEventListener('click', () => this.showScreen('shop'));
+        this.elements.profileButton.addEventListener('click', () => this.showScreen('profile'));
+        this.elements.settingsButton.addEventListener('click', () => this.showScreen('settings'));
+        this.elements.menuButton.addEventListener('click', () => this.showScreen('menu'));
+        // Botones de volver
+        this.elements.backButtons.forEach(btn => {
+            btn.addEventListener('click', () => this.showScreen('menu'));
+        });
         // Click en el botón principal
         this.elements.clickButton.addEventListener('click', () => this.handleClick());
         // Comprar mejora de click
@@ -112,6 +141,49 @@ class ClickerGame {
         });
         // Guardar antes de cerrar la página
         window.addEventListener('beforeunload', () => this.saveProgress());
+    }
+    /**
+     * Oculta todas las pantallas
+     */
+    hideAllScreens() {
+        this.elements.mainMenu.classList.add('hidden');
+        this.elements.gameScreen.classList.add('hidden');
+        this.elements.shopScreen.classList.add('hidden');
+        this.elements.profileScreen.classList.add('hidden');
+        this.elements.settingsScreen.classList.add('hidden');
+    }
+    /**
+     * Muestra una pantalla específica
+     */
+    showScreen(screen) {
+        this.hideAllScreens();
+        switch (screen) {
+            case 'menu':
+                this.elements.mainMenu.classList.remove('hidden');
+                this.saveProgress();
+                break;
+            case 'game':
+                this.elements.gameScreen.classList.remove('hidden');
+                break;
+            case 'shop':
+                this.elements.shopScreen.classList.remove('hidden');
+                break;
+            case 'profile':
+                this.updateProfileStats();
+                this.elements.profileScreen.classList.remove('hidden');
+                break;
+            case 'settings':
+                this.elements.settingsScreen.classList.remove('hidden');
+                break;
+        }
+    }
+    /**
+     * Actualiza las estadísticas del perfil
+     */
+    updateProfileStats() {
+        this.elements.profileTotalScore.textContent = this.formatNumber(this.state.score);
+        this.elements.profileCps.textContent = this.state.pointsPerSecond.toString();
+        this.elements.profileUpgrades.textContent = (this.state.clickUpgradeLevel + this.state.autoUpgradeLevel).toString();
     }
     /**
      * Maneja el click en el botón principal

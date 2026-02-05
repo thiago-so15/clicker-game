@@ -1,0 +1,2 @@
+- mejorar mensaje de confirmacion al reiniciar juego
+- 

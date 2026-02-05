@@ -7,7 +7,80 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="game-container">
+    <!-- Menú Principal -->
+    <div id="main-menu" class="menu-container">
+        <div class="menu-content">
+            <h1 class="menu-title">🎮 Clicker Game</h1>
+            <p class="menu-subtitle">¡Haz click y consigue puntos!</p>
+            <div class="menu-grid">
+                <button id="play-button" class="menu-grid-btn">
+                    <span class="menu-grid-icon">🎮</span>
+                    <span class="menu-grid-text">Jugar</span>
+                </button>
+                <button id="shop-button" class="menu-grid-btn">
+                    <span class="menu-grid-icon">🛒</span>
+                    <span class="menu-grid-text">Tienda</span>
+                </button>
+                <button id="profile-button" class="menu-grid-btn">
+                    <span class="menu-grid-icon">👤</span>
+                    <span class="menu-grid-text">Perfil</span>
+                </button>
+                <button id="settings-button" class="menu-grid-btn">
+                    <span class="menu-grid-icon">⚙️</span>
+                    <span class="menu-grid-text">Ajustes</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla Tienda -->
+    <div id="shop-screen" class="screen-container hidden">
+        <div class="screen-header">
+            <button class="back-btn" data-target="menu">← Volver</button>
+            <h2>🛒 Tienda</h2>
+        </div>
+        <div class="screen-content">
+            <p class="coming-soon">🚧 Próximamente...</p>
+        </div>
+    </div>
+
+    <!-- Pantalla Perfil -->
+    <div id="profile-screen" class="screen-container hidden">
+        <div class="screen-header">
+            <button class="back-btn" data-target="menu">← Volver</button>
+            <h2>👤 Perfil</h2>
+        </div>
+        <div class="screen-content">
+            <div class="profile-stats">
+                <div class="profile-stat">
+                    <span class="profile-stat-label">Puntos totales:</span>
+                    <span id="profile-total-score" class="profile-stat-value">0</span>
+                </div>
+                <div class="profile-stat">
+                    <span class="profile-stat-label">Clicks por segundo:</span>
+                    <span id="profile-cps" class="profile-stat-value">0</span>
+                </div>
+                <div class="profile-stat">
+                    <span class="profile-stat-label">Mejoras compradas:</span>
+                    <span id="profile-upgrades" class="profile-stat-value">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla Ajustes -->
+    <div id="settings-screen" class="screen-container hidden">
+        <div class="screen-header">
+            <button class="back-btn" data-target="menu">← Volver</button>
+            <h2>⚙️ Ajustes</h2>
+        </div>
+        <div class="screen-content">
+            <p class="coming-soon">🚧 Próximamente...</p>
+        </div>
+    </div>
+
+    <!-- Juego -->
+    <div id="game-screen" class="game-container hidden">
         <!-- Header con título y puntos -->
         <header class="game-header">
             <h1>🎮 Clicker Game</h1>
@@ -66,9 +139,10 @@
             </div>
         </section>
 
-        <!-- Footer con botón de reset -->
+        <!-- Footer con botones -->
         <footer class="game-footer">
-            <button id="reset-button" class="reset-button">🔄 Reiniciar Juego</button>
+            <button id="menu-button" class="menu-back-button">🏠 Menú</button>
+            <button id="reset-button" class="reset-button">🔄 Reiniciar</button>
         </footer>
     </div>
 
