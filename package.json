@@ -1,0 +1,26 @@
+{
+  "name": "clicker-game",
+  "version": "1.0.0",
+  "description": "Juego Clicker con TypeScript - Sistema de mejoras y auto-clicker",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "open index.html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thiago-so15/clicker-game.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/thiago-so15/clicker-game/issues"
+  },
+  "homepage": "https://github.com/thiago-so15/clicker-game#readme",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

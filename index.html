@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clicker Game</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <!-- Header con título y puntos -->
+        <header class="game-header">
+            <h1>🎮 Clicker Game</h1>
+            <div class="score-display">
+                <span class="score-label">Puntos:</span>
+                <span id="score" class="score-value">0</span>
+            </div>
+            <div class="stats">
+                <span class="stat-item">
+                    <span class="stat-label">Por click:</span>
+                    <span id="points-per-click" class="stat-value">1</span>
+                </span>
+                <span class="stat-item">
+                    <span class="stat-label">Por segundo:</span>
+                    <span id="points-per-second" class="stat-value">0</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- Área principal del botón de click -->
+        <main class="click-area">
+            <button id="click-button" class="main-click-button">
+                <span class="click-icon">👆</span>
+                <span class="click-text">¡CLICK!</span>
+            </button>
+            <div id="click-feedback" class="click-feedback"></div>
+        </main>
+
+        <!-- Panel de mejoras -->
+        <section class="upgrades-panel">
+            <h2>🛠️ Mejoras</h2>
+            <div class="upgrades-list">
+                <!-- Mejora 1: Puntos extra por click -->
+                <div class="upgrade-card" id="upgrade-click">
+                    <div class="upgrade-info">
+                        <h3>⚡ Click Potenciado</h3>
+                        <p class="upgrade-description">+1 punto extra por cada click</p>
+                        <p class="upgrade-owned">Nivel: <span id="upgrade-click-level">0</span></p>
+                    </div>
+                    <button id="buy-click-upgrade" class="upgrade-button">
+                        <span class="upgrade-price">💰 <span id="upgrade-click-price">10</span></span>
+                    </button>
+                </div>
+
+                <!-- Mejora 2: Auto-clicker -->
+                <div class="upgrade-card" id="upgrade-auto">
+                    <div class="upgrade-info">
+                        <h3>🤖 Auto-Clicker</h3>
+                        <p class="upgrade-description">+1 punto automático por segundo</p>
+                        <p class="upgrade-owned">Nivel: <span id="upgrade-auto-level">0</span></p>
+                    </div>
+                    <button id="buy-auto-upgrade" class="upgrade-button">
+                        <span class="upgrade-price">💰 <span id="upgrade-auto-price">50</span></span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer con botón de reset -->
+        <footer class="game-footer">
+            <button id="reset-button" class="reset-button">🔄 Reiniciar Juego</button>
+        </footer>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

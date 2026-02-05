@@ -1,0 +1,48 @@
+{
+    "compilerOptions": {
+        // Versión de JavaScript de salida
+        "target": "ES2020",
+        
+        // Sistema de módulos
+        "module": "ES2020",
+        
+        // Configuración estricta de TypeScript
+        "strict": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
+        "strictFunctionTypes": true,
+        "strictBindCallApply": true,
+        "strictPropertyInitialization": true,
+        "noImplicitThis": true,
+        "alwaysStrict": true,
+        
+        // Verificaciones adicionales
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        
+        // Configuración de módulos
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        
+        // Otras opciones
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "declaration": false,
+        "declarationMap": false,
+        "sourceMap": true,
+        
+        // Librerías DOM
+        "lib": ["ES2020", "DOM", "DOM.Iterable"],
+        
+        // Directorio de salida
+        "outDir": "./",
+        "rootDir": "./"
+    },
+    "include": ["*.ts"],
+    "exclude": ["node_modules"]
+}
