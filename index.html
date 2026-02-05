@@ -39,8 +39,14 @@
             <button class="back-btn" data-target="menu">← Volver</button>
             <h2>🛒 Tienda</h2>
         </div>
-        <div class="screen-content">
-            <p class="coming-soon">🚧 Próximamente...</p>
+        <div class="shop-balance">
+            <span class="shop-balance-label">Tus puntos:</span>
+            <span id="shop-score" class="shop-balance-value">0</span>
+        </div>
+        <div class="shop-content">
+            <div id="shop-items" class="shop-items-grid">
+                <!-- Los ítems se generan dinámicamente -->
+            </div>
         </div>
     </div>
 
@@ -50,19 +56,117 @@
             <button class="back-btn" data-target="menu">← Volver</button>
             <h2>👤 Perfil</h2>
         </div>
-        <div class="screen-content">
-            <div class="profile-stats">
-                <div class="profile-stat">
-                    <span class="profile-stat-label">Puntos totales:</span>
-                    <span id="profile-total-score" class="profile-stat-value">0</span>
+        <div class="profile-content">
+            <!-- Información Básica -->
+            <div class="profile-card profile-identity">
+                <div class="profile-avatar-section">
+                    <div id="profile-avatar" class="profile-avatar">😊</div>
+                    <button id="change-avatar-btn" class="profile-avatar-btn">Cambiar</button>
                 </div>
-                <div class="profile-stat">
-                    <span class="profile-stat-label">Clicks por segundo:</span>
-                    <span id="profile-cps" class="profile-stat-value">0</span>
+                <div class="profile-name-section">
+                    <label class="profile-name-label">Nombre del jugador</label>
+                    <div class="profile-name-input-wrapper">
+                        <input type="text" id="profile-name" class="profile-name-input" 
+                               placeholder="Jugador" maxlength="20">
+                        <span id="profile-name-saved" class="profile-name-saved hidden">✓</span>
+                    </div>
                 </div>
-                <div class="profile-stat">
-                    <span class="profile-stat-label">Mejoras compradas:</span>
-                    <span id="profile-upgrades" class="profile-stat-value">0</span>
+                <div class="profile-level-badge">
+                    <span class="profile-level-label">Nivel</span>
+                    <span id="profile-level" class="profile-level-value">1</span>
+                </div>
+            </div>
+
+            <!-- Selector de Avatar (oculto por defecto) -->
+            <div id="avatar-selector" class="profile-avatar-selector hidden">
+                <div class="avatar-selector-title">Selecciona tu avatar</div>
+                <div class="avatar-selector-grid">
+                    <button class="avatar-option" data-avatar="😊">😊</button>
+                    <button class="avatar-option" data-avatar="😎">😎</button>
+                    <button class="avatar-option" data-avatar="🤖">🤖</button>
+                    <button class="avatar-option" data-avatar="👾">👾</button>
+                    <button class="avatar-option" data-avatar="🦊">🦊</button>
+                    <button class="avatar-option" data-avatar="🐱">🐱</button>
+                    <button class="avatar-option" data-avatar="🐼">🐼</button>
+                    <button class="avatar-option" data-avatar="🦁">🦁</button>
+                    <button class="avatar-option" data-avatar="🐲">🐲</button>
+                    <button class="avatar-option" data-avatar="🦄">🦄</button>
+                    <button class="avatar-option" data-avatar="👻">👻</button>
+                    <button class="avatar-option" data-avatar="💀">💀</button>
+                    <button class="avatar-option" data-avatar="🎮">🎮</button>
+                    <button class="avatar-option" data-avatar="⭐">⭐</button>
+                    <button class="avatar-option" data-avatar="💎">💎</button>
+                    <button class="avatar-option" data-avatar="🔥">🔥</button>
+                </div>
+            </div>
+
+            <!-- Estadísticas -->
+            <div class="profile-card profile-statistics">
+                <h3 class="profile-card-title">📊 Estadísticas</h3>
+                <div class="profile-stats-grid">
+                    <div class="profile-stat-item">
+                        <span class="profile-stat-icon">👆</span>
+                        <div class="profile-stat-info">
+                            <span class="profile-stat-value" id="stat-total-clicks">0</span>
+                            <span class="profile-stat-label">Clicks totales</span>
+                        </div>
+                    </div>
+                    <div class="profile-stat-item">
+                        <span class="profile-stat-icon">💰</span>
+                        <div class="profile-stat-info">
+                            <span class="profile-stat-value" id="stat-total-points">0</span>
+                            <span class="profile-stat-label">Puntos ganados</span>
+                        </div>
+                    </div>
+                    <div class="profile-stat-item">
+                        <span class="profile-stat-icon">⏱️</span>
+                        <div class="profile-stat-info">
+                            <span class="profile-stat-value" id="stat-time-played">0:00:00</span>
+                            <span class="profile-stat-label">Tiempo jugado</span>
+                        </div>
+                    </div>
+                    <div class="profile-stat-item">
+                        <span class="profile-stat-icon">🎯</span>
+                        <div class="profile-stat-info">
+                            <span class="profile-stat-value" id="stat-points-per-click">1</span>
+                            <span class="profile-stat-label">Puntos por click</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progreso -->
+            <div class="profile-card profile-progress">
+                <h3 class="profile-card-title">🏆 Progreso</h3>
+                <div class="profile-progress-grid">
+                    <div class="profile-progress-item">
+                        <div class="profile-progress-header">
+                            <span class="profile-progress-label">Mejoras desbloqueadas</span>
+                            <span class="profile-progress-value" id="progress-upgrades">0</span>
+                        </div>
+                        <div class="profile-progress-bar">
+                            <div class="profile-progress-fill" id="progress-upgrades-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="profile-progress-item">
+                        <div class="profile-progress-header">
+                            <span class="profile-progress-label">Ítems de tienda</span>
+                            <span class="profile-progress-value" id="progress-items">0/8</span>
+                        </div>
+                        <div class="profile-progress-bar">
+                            <div class="profile-progress-fill" id="progress-items-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="profile-progress-item">
+                        <div class="profile-progress-header">
+                            <span class="profile-progress-label">Nivel actual</span>
+                            <span class="profile-progress-value" id="progress-level">1/100</span>
+                        </div>
+                        <div class="profile-progress-bar">
+                            <div class="profile-progress-fill" id="progress-level-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="profile-progress-hint" id="progress-level-hint">0 / 100 puntos para nivel 2</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -74,8 +178,80 @@
             <button class="back-btn" data-target="menu">← Volver</button>
             <h2>⚙️ Ajustes</h2>
         </div>
-        <div class="screen-content">
-            <p class="coming-soon">🚧 Próximamente...</p>
+        <div class="settings-content">
+            <!-- Sección: Audio -->
+            <div class="settings-section">
+                <h3 class="settings-section-title">🔊 Audio</h3>
+                <div class="settings-option">
+                    <div class="settings-option-info">
+                        <span class="settings-option-label">Sonidos</span>
+                        <span class="settings-option-desc">Activar efectos de sonido</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting-sound" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Sección: Visual -->
+            <div class="settings-section">
+                <h3 class="settings-section-title">🎨 Visual</h3>
+                <div class="settings-option">
+                    <div class="settings-option-info">
+                        <span class="settings-option-label">Animaciones</span>
+                        <span class="settings-option-desc">Activar animaciones del juego</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting-animations" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-option">
+                    <div class="settings-option-info">
+                        <span class="settings-option-label">Tema</span>
+                        <span class="settings-option-desc">Cambiar apariencia del juego</span>
+                    </div>
+                    <div class="theme-selector">
+                        <button class="theme-btn active" data-theme="dark">🌙 Oscuro</button>
+                        <button class="theme-btn" data-theme="light">☀️ Claro</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sección: Gameplay -->
+            <div class="settings-section">
+                <h3 class="settings-section-title">🎮 Gameplay</h3>
+                <div class="settings-option">
+                    <div class="settings-option-info">
+                        <span class="settings-option-label">Confirmar compras</span>
+                        <span class="settings-option-desc">Pedir confirmación en la tienda</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting-confirm-purchases">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Sección: Datos -->
+            <div class="settings-section">
+                <h3 class="settings-section-title">💾 Datos</h3>
+                <div class="settings-option settings-option-danger">
+                    <div class="settings-option-info">
+                        <span class="settings-option-label">Reiniciar progreso</span>
+                        <span class="settings-option-desc">Borrar todos los datos del juego</span>
+                    </div>
+                    <button id="settings-reset-btn" class="settings-danger-btn">
+                        🗑️ Reiniciar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Versión -->
+            <div class="settings-footer">
+                <span class="settings-version">Clicker Game v1.0.0</span>
+            </div>
         </div>
     </div>
 
@@ -146,14 +322,14 @@
         </footer>
     </div>
 
-    <!-- Modal de confirmación -->
+    <!-- Modal de confirmación (genérico) -->
     <div id="confirm-modal" class="modal-overlay hidden">
         <div class="modal-content">
-            <h3 class="modal-title">⚠️ Reiniciar Juego</h3>
-            <p class="modal-message">¿Estás seguro? Se perderá todo el progreso.</p>
+            <h3 id="modal-title" class="modal-title">⚠️ Confirmar</h3>
+            <p id="modal-message" class="modal-message">¿Estás seguro?</p>
             <div class="modal-buttons">
                 <button id="modal-cancel" class="modal-btn modal-btn-cancel">Cancelar</button>
-                <button id="modal-confirm" class="modal-btn modal-btn-confirm">Reiniciar</button>
+                <button id="modal-confirm" class="modal-btn modal-btn-confirm">Confirmar</button>
             </div>
         </div>
     </div>
