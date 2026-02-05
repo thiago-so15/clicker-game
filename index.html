@@ -12,7 +12,19 @@
         <div class="menu-content">
             <h1 class="menu-title">🎮 Clicker Game</h1>
             <p class="menu-subtitle">¡Haz click y consigue puntos!</p>
-            <div class="menu-grid">
+            
+            <!-- Indicador de Etapa -->
+            <div id="stage-indicator" class="stage-indicator">
+                <div class="stage-info">
+                    <span id="stage-icon" class="stage-icon">🌱</span>
+                    <span id="stage-name" class="stage-name">Novato</span>
+                </div>
+                <div id="stage-progress" class="stage-progress">
+                    <div id="stage-progress-fill" class="stage-progress-fill"></div>
+                </div>
+            </div>
+            
+            <div class="menu-grid menu-grid-4x2">
                 <button id="play-button" class="menu-grid-btn">
                     <span class="menu-grid-icon">🎮</span>
                     <span class="menu-grid-text">Jugar</span>
@@ -21,9 +33,23 @@
                     <span class="menu-grid-icon">🛒</span>
                     <span class="menu-grid-text">Tienda</span>
                 </button>
+                <button id="missions-button" class="menu-grid-btn">
+                    <span class="menu-grid-icon">📜</span>
+                    <span class="menu-grid-text">Misiones</span>
+                    <span id="missions-badge" class="menu-badge hidden">0</span>
+                </button>
                 <button id="profile-button" class="menu-grid-btn">
                     <span class="menu-grid-icon">👤</span>
                     <span class="menu-grid-text">Perfil</span>
+                </button>
+                <button id="stats-button" class="menu-grid-btn">
+                    <span class="menu-grid-icon">📊</span>
+                    <span class="menu-grid-text">Estadísticas</span>
+                </button>
+                <button id="prestige-button" class="menu-grid-btn prestige-btn">
+                    <span class="menu-grid-icon">⭐</span>
+                    <span class="menu-grid-text">Prestigio</span>
+                    <span id="prestige-count" class="prestige-count">×0</span>
                 </button>
                 <button id="settings-button" class="menu-grid-btn">
                     <span class="menu-grid-icon">⚙️</span>
@@ -234,6 +260,17 @@
                 </div>
             </div>
 
+            <!-- Sección: Temas Visuales -->
+            <div class="settings-section">
+                <h3 class="settings-section-title">🎨 Temas Visuales</h3>
+                <p class="settings-section-desc">Desbloquea nuevos temas avanzando en el juego</p>
+                <div id="theme-selector" class="theme-selector">
+                    <div id="theme-selector-grid" class="theme-selector-grid">
+                        <!-- Los temas se generan dinámicamente -->
+                    </div>
+                </div>
+            </div>
+
             <!-- Sección: Datos -->
             <div class="settings-section">
                 <h3 class="settings-section-title">💾 Datos</h3>
@@ -251,6 +288,216 @@
             <!-- Versión -->
             <div class="settings-footer">
                 <span class="settings-version">Clicker Game v1.0.0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla Estadísticas -->
+    <div id="stats-screen" class="screen-container hidden">
+        <div class="screen-header">
+            <button class="back-btn" data-target="menu">← Volver</button>
+            <h2>📊 Estadísticas</h2>
+        </div>
+        <div class="stats-content">
+            <!-- Resumen de sesión actual -->
+            <div class="stats-card stats-session-current">
+                <h3 class="stats-card-title">🎯 Sesión Actual</h3>
+                <div class="stats-session-grid">
+                    <div class="stats-session-item">
+                        <span class="stats-session-value" id="session-clicks">0</span>
+                        <span class="stats-session-label">Clicks</span>
+                    </div>
+                    <div class="stats-session-item">
+                        <span class="stats-session-value" id="session-points">0</span>
+                        <span class="stats-session-label">Puntos</span>
+                    </div>
+                    <div class="stats-session-item">
+                        <span class="stats-session-value" id="session-duration">0:00</span>
+                        <span class="stats-session-label">Duración</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actividad -->
+            <div class="stats-card">
+                <h3 class="stats-card-title">👆 Actividad</h3>
+                <div class="stats-list">
+                    <div class="stats-row">
+                        <span class="stats-row-label">Clicks totales</span>
+                        <span class="stats-row-value" id="stats-total-clicks">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Clicks por segundo (CPS)</span>
+                        <span class="stats-row-value stats-highlight" id="stats-cps">0.0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Mejor racha de clicks</span>
+                        <span class="stats-row-value" id="stats-best-streak">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Racha actual</span>
+                        <span class="stats-row-value stats-highlight" id="stats-current-streak">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Producción -->
+            <div class="stats-card">
+                <h3 class="stats-card-title">💰 Producción</h3>
+                <div class="stats-list">
+                    <div class="stats-row">
+                        <span class="stats-row-label">Puntos totales ganados</span>
+                        <span class="stats-row-value" id="stats-total-points">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Puntos por segundo (PPS)</span>
+                        <span class="stats-row-value stats-highlight" id="stats-pps">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Promedio por click</span>
+                        <span class="stats-row-value" id="stats-avg-per-click">0.0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Puntos por clicks manuales</span>
+                        <span class="stats-row-value" id="stats-manual-points">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Puntos por auto-clicker</span>
+                        <span class="stats-row-value" id="stats-auto-points">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tiempo -->
+            <div class="stats-card">
+                <h3 class="stats-card-title">⏱️ Tiempo</h3>
+                <div class="stats-list">
+                    <div class="stats-row">
+                        <span class="stats-row-label">Tiempo total jugado</span>
+                        <span class="stats-row-value" id="stats-total-time">0:00:00</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Tiempo activo (clickeando)</span>
+                        <span class="stats-row-value" id="stats-active-time">0:00:00</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Sesiones totales</span>
+                        <span class="stats-row-value" id="stats-total-sessions">0</span>
+                    </div>
+                    <div class="stats-row">
+                        <span class="stats-row-label">Promedio por sesión</span>
+                        <span class="stats-row-value" id="stats-avg-session">0:00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Historial de sesiones -->
+            <div class="stats-card stats-history">
+                <h3 class="stats-card-title">📜 Historial Reciente</h3>
+                <div class="stats-history-list" id="stats-history-list">
+                    <div class="stats-history-empty">No hay sesiones anteriores</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla Misiones -->
+    <div id="missions-screen" class="screen-container hidden">
+        <div class="screen-header">
+            <button class="back-btn" data-target="menu">← Volver</button>
+            <h2>📜 Misiones</h2>
+        </div>
+        <div class="missions-content">
+            <!-- Resumen de misiones -->
+            <div class="missions-summary">
+                <div class="missions-summary-item">
+                    <span class="missions-summary-value" id="missions-completed">0</span>
+                    <span class="missions-summary-label">Completadas</span>
+                </div>
+                <div class="missions-summary-item">
+                    <span class="missions-summary-value" id="missions-total">0</span>
+                    <span class="missions-summary-label">Total</span>
+                </div>
+                <div class="missions-summary-progress">
+                    <div class="missions-progress-bar">
+                        <div class="missions-progress-fill" id="missions-progress-fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lista de misiones -->
+            <div class="missions-list" id="missions-list">
+                <!-- Las misiones se generan dinámicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla Prestigio -->
+    <div id="prestige-screen" class="screen-container hidden">
+        <div class="screen-header">
+            <button class="back-btn" data-target="menu">← Volver</button>
+            <h2>⭐ Prestigio</h2>
+        </div>
+        <div class="prestige-content">
+            <!-- Información de prestigio -->
+            <div class="prestige-info-card">
+                <div class="prestige-star">⭐</div>
+                <div class="prestige-level">
+                    <span class="prestige-level-label">Nivel de Prestigio</span>
+                    <span class="prestige-level-value" id="prestige-level">0</span>
+                </div>
+                <div class="prestige-description">
+                    El prestigio reinicia tu progreso pero mantiene tus logros y estadísticas históricas.
+                    Es un símbolo de dedicación.
+                </div>
+            </div>
+
+            <!-- Estadísticas de prestigio -->
+            <div class="prestige-stats-card">
+                <h3 class="prestige-stats-title">📊 Estadísticas Globales</h3>
+                <div class="prestige-stats-list">
+                    <div class="prestige-stat-row">
+                        <span class="prestige-stat-label">Puntos totales históricos</span>
+                        <span class="prestige-stat-value" id="prestige-total-points">0</span>
+                    </div>
+                    <div class="prestige-stat-row">
+                        <span class="prestige-stat-label">Clicks totales históricos</span>
+                        <span class="prestige-stat-value" id="prestige-total-clicks">0</span>
+                    </div>
+                    <div class="prestige-stat-row">
+                        <span class="prestige-stat-label">Ítems comprados (todos los tiempos)</span>
+                        <span class="prestige-stat-value" id="prestige-total-items">0</span>
+                    </div>
+                    <div class="prestige-stat-row">
+                        <span class="prestige-stat-label">Misiones completadas</span>
+                        <span class="prestige-stat-value" id="prestige-total-missions">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Requisito y botón de prestigio -->
+            <div class="prestige-action-card">
+                <div class="prestige-requirement">
+                    <span class="prestige-req-label">Requisito para prestigiar:</span>
+                    <span class="prestige-req-value" id="prestige-requirement">100,000 puntos</span>
+                </div>
+                <div class="prestige-current">
+                    <span class="prestige-current-label">Tus puntos actuales:</span>
+                    <span class="prestige-current-value" id="prestige-current-points">0</span>
+                </div>
+                <button id="prestige-action-btn" class="prestige-action-btn" disabled>
+                    <span class="prestige-btn-icon">⭐</span>
+                    <span class="prestige-btn-text">Prestigiar</span>
+                </button>
+                <p class="prestige-warning">⚠️ Perderás puntos y mejoras, pero conservarás logros y estadísticas.</p>
+            </div>
+
+            <!-- Historial de prestigios -->
+            <div class="prestige-history-card">
+                <h3 class="prestige-history-title">📜 Historial de Prestigios</h3>
+                <div class="prestige-history-list" id="prestige-history-list">
+                    <div class="prestige-history-empty">Aún no has prestigiado</div>
+                </div>
             </div>
         </div>
     </div>
@@ -330,6 +577,36 @@
             <div class="modal-buttons">
                 <button id="modal-cancel" class="modal-btn modal-btn-cancel">Cancelar</button>
                 <button id="modal-confirm" class="modal-btn modal-btn-confirm">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de ganancias offline -->
+    <div id="offline-modal" class="modal-overlay hidden">
+        <div class="modal-content offline-modal-content">
+            <div class="offline-modal-header">
+                <span class="offline-modal-icon">💤</span>
+                <h3 class="offline-modal-title">¡Bienvenido de vuelta!</h3>
+            </div>
+            <div class="offline-modal-body">
+                <p class="offline-time-away">
+                    Estuviste fuera <span id="offline-time" class="offline-highlight">0 minutos</span>
+                </p>
+                <div class="offline-earnings-display">
+                    <span class="offline-earnings-label">Tus auto-clickers generaron:</span>
+                    <span id="offline-points" class="offline-earnings-value">+0</span>
+                    <span class="offline-earnings-suffix">puntos</span>
+                </div>
+                <p class="offline-efficiency-note">
+                    <span class="offline-info-icon">ℹ️</span>
+                    Eficiencia offline: 50% (máx. 8 horas)
+                </p>
+            </div>
+            <div class="offline-modal-footer">
+                <button id="offline-claim-btn" class="offline-claim-btn">
+                    <span class="offline-claim-icon">🎁</span>
+                    <span class="offline-claim-text">¡Reclamar!</span>
+                </button>
             </div>
         </div>
     </div>

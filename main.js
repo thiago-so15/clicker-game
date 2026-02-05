@@ -8,6 +8,433 @@
  * y guardado automático en localStorage.
  */
 // ============================================
+// SISTEMA DE GUARDADO CENTRALIZADO
+// ============================================
+/** Versión actual del formato de guardado */
+const SAVE_VERSION = 1;
+/** Clave maestra para el guardado centralizado */
+const MASTER_SAVE_KEY = 'clickerGameSave';
+/**
+ * ============================================
+ * SAVE MANAGER - Gestor Central de Guardado
+ * ============================================
+ *
+ * Centraliza todo el acceso a localStorage para:
+ * - Evitar múltiples accesos innecesarios
+ * - Mantener versionado de datos
+ * - Facilitar migraciones futuras
+ * - Manejar errores de forma consistente
+ */
+class SaveManager {
+    constructor() {
+        this.saveKey = MASTER_SAVE_KEY;
+        this.isDirty = false;
+        // Cache del último guardado para evitar lecturas innecesarias
+        this.cachedData = null;
+    }
+    /**
+     * Obtiene la instancia singleton del SaveManager
+     */
+    static getInstance() {
+        if (!SaveManager.instance) {
+            SaveManager.instance = new SaveManager();
+        }
+        return SaveManager.instance;
+    }
+    /**
+     * Carga los datos del juego desde localStorage
+     * @returns Los datos guardados o null si no existen
+     */
+    load() {
+        try {
+            const savedData = localStorage.getItem(this.saveKey);
+            if (!savedData) {
+                // Intentar migrar datos antiguos
+                return this.migrateOldSave();
+            }
+            const parsed = JSON.parse(savedData);
+            // Verificar y migrar si es necesario
+            if (parsed.version < SAVE_VERSION) {
+                return this.migrateSaveData(parsed);
+            }
+            this.cachedData = parsed;
+            return parsed;
+        }
+        catch (error) {
+            console.error('[SaveManager] Error al cargar datos:', error);
+            return null;
+        }
+    }
+    /**
+     * Guarda los datos del juego en localStorage
+     * @param data Los datos completos del juego
+     * @returns true si el guardado fue exitoso
+     */
+    save(data) {
+        try {
+            const saveData = {
+                ...data,
+                version: SAVE_VERSION,
+                lastSaveTime: Date.now()
+            };
+            const serialized = JSON.stringify(saveData);
+            localStorage.setItem(this.saveKey, serialized);
+            this.cachedData = saveData;
+            this.isDirty = false;
+            console.log('[SaveManager] Juego guardado correctamente');
+            return true;
+        }
+        catch (error) {
+            console.error('[SaveManager] Error al guardar:', error);
+            return false;
+        }
+    }
+    /**
+     * Marca los datos como modificados (necesitan guardarse)
+     */
+    markDirty() {
+        this.isDirty = true;
+    }
+    /**
+     * Verifica si hay cambios pendientes de guardar
+     */
+    hasPendingChanges() {
+        return this.isDirty;
+    }
+    /**
+     * Reinicia todos los datos del juego
+     */
+    reset() {
+        try {
+            localStorage.removeItem(this.saveKey);
+            // También limpiar claves antiguas por si acaso
+            localStorage.removeItem('clickerGameState');
+            localStorage.removeItem('clickerGameSettings');
+            localStorage.removeItem('clickerGameProfile');
+            localStorage.removeItem('clickerGameStats');
+            localStorage.removeItem('clickerGameMissions');
+            localStorage.removeItem('clickerGamePrestige');
+            localStorage.removeItem('clickerGameProgression');
+            this.cachedData = null;
+            this.isDirty = false;
+            console.log('[SaveManager] Datos reiniciados');
+        }
+        catch (error) {
+            console.error('[SaveManager] Error al reiniciar:', error);
+        }
+    }
+    /**
+     * Exporta los datos del juego como string JSON
+     * @returns String JSON con todos los datos
+     */
+    exportSave() {
+        if (this.cachedData) {
+            return JSON.stringify(this.cachedData, null, 2);
+        }
+        const data = this.load();
+        return data ? JSON.stringify(data, null, 2) : '';
+    }
+    /**
+     * Importa datos del juego desde un string JSON
+     * @param jsonString String JSON con los datos a importar
+     * @returns true si la importación fue exitosa
+     */
+    importSave(jsonString) {
+        try {
+            const data = JSON.parse(jsonString);
+            // Validar estructura básica
+            if (!data.gameState || !data.profile || !data.settings) {
+                throw new Error('Estructura de datos inválida');
+            }
+            localStorage.setItem(this.saveKey, JSON.stringify(data));
+            this.cachedData = data;
+            console.log('[SaveManager] Datos importados correctamente');
+            return true;
+        }
+        catch (error) {
+            console.error('[SaveManager] Error al importar:', error);
+            return false;
+        }
+    }
+    /**
+     * Calcula las ganancias offline basadas en el auto-clicker
+     * @param pointsPerSecond Puntos por segundo del auto-clicker
+     * @returns Información sobre las ganancias offline
+     */
+    calculateOfflineEarnings(pointsPerSecond) {
+        const MAX_OFFLINE_HOURS = 8; // Máximo 8 horas de ganancias offline
+        const MAX_OFFLINE_SECONDS = MAX_OFFLINE_HOURS * 60 * 60;
+        const OFFLINE_EFFICIENCY = 0.5; // 50% de eficiencia offline
+        if (!this.cachedData || pointsPerSecond <= 0) {
+            return { timeAway: 0, pointsEarned: 0, maxOfflineTime: MAX_OFFLINE_SECONDS };
+        }
+        const lastActive = this.cachedData.lastActiveTime || this.cachedData.lastSaveTime;
+        const now = Date.now();
+        const timeAwayMs = now - lastActive;
+        const timeAwaySeconds = Math.floor(timeAwayMs / 1000);
+        // Limitar tiempo offline
+        const effectiveTime = Math.min(timeAwaySeconds, MAX_OFFLINE_SECONDS);
+        // Calcular puntos con eficiencia reducida
+        const pointsEarned = Math.floor(effectiveTime * pointsPerSecond * OFFLINE_EFFICIENCY);
+        return {
+            timeAway: timeAwaySeconds,
+            pointsEarned,
+            maxOfflineTime: MAX_OFFLINE_SECONDS
+        };
+    }
+    /**
+     * Migra datos del formato antiguo (múltiples claves) al nuevo formato
+     */
+    migrateOldSave() {
+        console.log('[SaveManager] Intentando migrar datos antiguos...');
+        try {
+            // Intentar cargar datos de las claves antiguas
+            const oldState = localStorage.getItem('clickerGameState');
+            const oldSettings = localStorage.getItem('clickerGameSettings');
+            const oldProfile = localStorage.getItem('clickerGameProfile');
+            const oldStats = localStorage.getItem('clickerGameStats');
+            const oldMissions = localStorage.getItem('clickerGameMissions');
+            const oldPrestige = localStorage.getItem('clickerGamePrestige');
+            const oldProgression = localStorage.getItem('clickerGameProgression');
+            if (!oldState) {
+                return null; // No hay datos para migrar
+            }
+            const gameState = JSON.parse(oldState);
+            const settings = oldSettings ? JSON.parse(oldSettings) : this.getDefaultSettings();
+            const profile = oldProfile ? JSON.parse(oldProfile) : this.getDefaultProfile();
+            const stats = oldStats ? JSON.parse(oldStats) : this.getDefaultStats();
+            const missions = oldMissions ? JSON.parse(oldMissions) : { completedIds: [] };
+            const prestige = oldPrestige ? JSON.parse(oldPrestige) : this.getDefaultPrestige();
+            const progression = oldProgression ? JSON.parse(oldProgression) : this.getDefaultProgression();
+            const migratedData = {
+                version: SAVE_VERSION,
+                lastSaveTime: Date.now(),
+                lastActiveTime: Date.now(),
+                gameState,
+                settings,
+                profile,
+                stats,
+                missions,
+                prestige,
+                progression
+            };
+            // Guardar en el nuevo formato
+            localStorage.setItem(this.saveKey, JSON.stringify(migratedData));
+            // Limpiar claves antiguas
+            localStorage.removeItem('clickerGameState');
+            localStorage.removeItem('clickerGameSettings');
+            localStorage.removeItem('clickerGameProfile');
+            localStorage.removeItem('clickerGameStats');
+            localStorage.removeItem('clickerGameMissions');
+            localStorage.removeItem('clickerGamePrestige');
+            localStorage.removeItem('clickerGameProgression');
+            console.log('[SaveManager] Migración completada');
+            this.cachedData = migratedData;
+            return migratedData;
+        }
+        catch (error) {
+            console.error('[SaveManager] Error en migración:', error);
+            return null;
+        }
+    }
+    /**
+     * Migra datos de una versión anterior a la actual
+     */
+    migrateSaveData(oldData) {
+        console.log(`[SaveManager] Migrando de v${oldData.version} a v${SAVE_VERSION}...`);
+        // Aquí se añadirían las migraciones específicas por versión
+        // Por ahora solo actualizamos el número de versión
+        const migratedData = {
+            ...oldData,
+            version: SAVE_VERSION,
+            lastActiveTime: oldData.lastActiveTime || oldData.lastSaveTime
+        };
+        localStorage.setItem(this.saveKey, JSON.stringify(migratedData));
+        this.cachedData = migratedData;
+        return migratedData;
+    }
+    // Métodos auxiliares para valores por defecto
+    getDefaultSettings() {
+        return {
+            soundEnabled: true,
+            animationsEnabled: true,
+            theme: 'dark',
+            confirmPurchases: true
+        };
+    }
+    getDefaultProfile() {
+        return {
+            name: 'Jugador',
+            avatar: '😊',
+            totalClicks: 0,
+            totalPointsEarned: 0,
+            totalTimePlayed: 0,
+            level: 1
+        };
+    }
+    getDefaultStats() {
+        return {
+            totalClicks: 0,
+            bestClickStreak: 0,
+            totalPointsEarned: 0,
+            manualPointsEarned: 0,
+            autoPointsEarned: 0,
+            totalTimePlayed: 0,
+            activeTime: 0,
+            totalSessions: 0,
+            sessionHistory: []
+        };
+    }
+    getDefaultPrestige() {
+        return {
+            level: 0,
+            totalHistoricPoints: 0,
+            totalHistoricClicks: 0,
+            totalHistoricItems: 0,
+            totalHistoricMissions: 0,
+            history: []
+        };
+    }
+    getDefaultProgression() {
+        return {
+            currentStage: 0,
+            unlockedStages: ['stage_1'],
+            unlockedThemes: ['theme_neon_violet'],
+            activeTheme: 'theme_neon_violet'
+        };
+    }
+}
+// Instancia global del SaveManager
+const saveManager = SaveManager.getInstance();
+/**
+ * ============================================
+ * EVENT BUS - Sistema de Eventos Central
+ * ============================================
+ *
+ * Patrón Publisher/Subscriber para desacoplar
+ * la comunicación entre sistemas del juego.
+ *
+ * Uso:
+ *   // Suscribirse a un evento
+ *   const sub = eventBus.on('click:performed', (data) => {
+ *       console.log('Click!', data.points);
+ *   });
+ *
+ *   // Emitir un evento
+ *   eventBus.emit('click:performed', { points: 10, ... });
+ *
+ *   // Cancelar suscripción
+ *   sub.unsubscribe();
+ */
+class EventBus {
+    constructor() {
+        // Mapa de listeners por evento
+        this.listeners = new Map();
+        // Flag para debug (opcional)
+        this.debugMode = false;
+    }
+    /**
+     * Suscribirse a un evento
+     * @param event Nombre del evento
+     * @param callback Función a ejecutar cuando ocurra el evento
+     * @returns Objeto con método unsubscribe para cancelar
+     */
+    on(event, callback) {
+        // Crear el Set si no existe para este evento
+        if (!this.listeners.has(event)) {
+            this.listeners.set(event, new Set());
+        }
+        // Añadir el callback
+        const eventListeners = this.listeners.get(event);
+        eventListeners.add(callback);
+        if (this.debugMode) {
+            console.log(`[EventBus] Suscrito a "${event}". Total listeners: ${eventListeners.size}`);
+        }
+        // Retornar objeto para cancelar suscripción
+        return {
+            unsubscribe: () => {
+                eventListeners.delete(callback);
+                if (this.debugMode) {
+                    console.log(`[EventBus] Desuscrito de "${event}"`);
+                }
+            }
+        };
+    }
+    /**
+     * Suscribirse a un evento solo una vez
+     * @param event Nombre del evento
+     * @param callback Función a ejecutar (solo la primera vez)
+     */
+    once(event, callback) {
+        const subscription = this.on(event, (payload) => {
+            subscription.unsubscribe();
+            callback(payload);
+        });
+        return subscription;
+    }
+    /**
+     * Emitir un evento a todos los listeners suscritos
+     * @param event Nombre del evento
+     * @param payload Datos del evento
+     */
+    emit(event, payload) {
+        const eventListeners = this.listeners.get(event);
+        if (this.debugMode) {
+            console.log(`[EventBus] Emitiendo "${event}"`, payload);
+        }
+        if (!eventListeners || eventListeners.size === 0) {
+            return;
+        }
+        // Ejecutar cada callback
+        eventListeners.forEach(callback => {
+            try {
+                callback(payload);
+            }
+            catch (error) {
+                console.error(`[EventBus] Error en listener de "${event}":`, error);
+            }
+        });
+    }
+    /**
+     * Eliminar todos los listeners de un evento específico
+     * @param event Nombre del evento
+     */
+    off(event) {
+        this.listeners.delete(event);
+        if (this.debugMode) {
+            console.log(`[EventBus] Eliminados todos los listeners de "${event}"`);
+        }
+    }
+    /**
+     * Eliminar TODOS los listeners de TODOS los eventos
+     */
+    clear() {
+        this.listeners.clear();
+        if (this.debugMode) {
+            console.log('[EventBus] Todos los listeners eliminados');
+        }
+    }
+    /**
+     * Obtener el número de listeners para un evento
+     * @param event Nombre del evento
+     */
+    listenerCount(event) {
+        return this.listeners.get(event)?.size || 0;
+    }
+    /**
+     * Activar/desactivar modo debug
+     */
+    setDebugMode(enabled) {
+        this.debugMode = enabled;
+        console.log(`[EventBus] Debug mode: ${enabled ? 'ON' : 'OFF'}`);
+    }
+}
+/**
+ * Instancia global del Event Bus
+ * Singleton para uso en toda la aplicación
+ */
+const eventBus = new EventBus();
+// ============================================
 // CONSTANTES Y CONFIGURACIÓN
 // ============================================
 /** Clave para guardar en localStorage */
@@ -16,6 +443,599 @@ const STORAGE_KEY = 'clickerGameState';
 const SETTINGS_KEY = 'clickerGameSettings';
 /** Clave para guardar perfil en localStorage */
 const PROFILE_KEY = 'clickerGameProfile';
+/** Clave para guardar estadísticas avanzadas en localStorage */
+const STATS_KEY = 'clickerGameStats';
+/** Clave para guardar misiones en localStorage */
+const MISSIONS_KEY = 'clickerGameMissions';
+/** Clave para guardar prestigio en localStorage */
+const PRESTIGE_KEY = 'clickerGamePrestige';
+/** Número máximo de sesiones en el historial */
+const MAX_SESSION_HISTORY = 10;
+/** Número máximo de registros de prestigio */
+const MAX_PRESTIGE_HISTORY = 20;
+/** Puntos requeridos para prestigiar (aumenta con cada prestigio) */
+const PRESTIGE_BASE_REQUIREMENT = 100000;
+/** Multiplicador de requisito por nivel de prestigio */
+const PRESTIGE_REQUIREMENT_MULTIPLIER = 2;
+/**
+ * Configuración de misiones
+ * Agregar nuevas misiones es tan simple como añadir objetos a este array
+ */
+/**
+ * Configuración de rangos de misiones con sus colores y multiplicadores
+ */
+const MISSION_RANKS = {
+    bronze: { name: 'Bronce', icon: '🥉', color: '#cd7f32' },
+    silver: { name: 'Plata', icon: '🥈', color: '#c0c0c0' },
+    gold: { name: 'Oro', icon: '🥇', color: '#ffd700' },
+    diamond: { name: 'Diamante', icon: '💎', color: '#b9f2ff' },
+    master: { name: 'Maestro', icon: '👑', color: '#ff6b6b' }
+};
+const MISSIONS_CONFIG = [
+    // === MISIONES DE CLICKS (BRONCE → MAESTRO) ===
+    {
+        id: 'first_clicks',
+        title: 'Primeros Pasos',
+        description: 'Haz 10 clicks',
+        icon: '👆',
+        type: 'clicks',
+        rank: 'bronze',
+        reward: 25,
+        target: 10
+    },
+    {
+        id: 'click_beginner',
+        title: 'Aprendiz del Click',
+        description: 'Haz 100 clicks',
+        icon: '✊',
+        type: 'clicks',
+        rank: 'bronze',
+        reward: 100,
+        target: 100
+    },
+    {
+        id: 'click_intermediate',
+        title: 'Clickeador Dedicado',
+        description: 'Haz 500 clicks',
+        icon: '💪',
+        type: 'clicks',
+        rank: 'silver',
+        reward: 500,
+        target: 500
+    },
+    {
+        id: 'click_advanced',
+        title: 'Maestro del Click',
+        description: 'Haz 1,000 clicks',
+        icon: '🏆',
+        type: 'clicks',
+        rank: 'gold',
+        reward: 1500,
+        target: 1000
+    },
+    {
+        id: 'click_expert',
+        title: 'Leyenda del Click',
+        description: 'Haz 5,000 clicks',
+        icon: '👑',
+        type: 'clicks',
+        rank: 'diamond',
+        reward: 5000,
+        target: 5000
+    },
+    {
+        id: 'click_master',
+        title: 'Dios del Click',
+        description: 'Haz 25,000 clicks',
+        icon: '⚡',
+        type: 'clicks',
+        rank: 'master',
+        reward: 25000,
+        target: 25000
+    },
+    // === MISIONES DE PUNTOS (BRONCE → MAESTRO) ===
+    {
+        id: 'points_starter',
+        title: 'Primer Centenar',
+        description: 'Acumula 100 puntos',
+        icon: '💰',
+        type: 'points',
+        rank: 'bronze',
+        reward: 50,
+        target: 100
+    },
+    {
+        id: 'points_thousand',
+        title: 'Millonario en Progreso',
+        description: 'Acumula 1,000 puntos',
+        icon: '💵',
+        type: 'points',
+        rank: 'silver',
+        reward: 250,
+        target: 1000
+    },
+    {
+        id: 'points_rich',
+        title: 'Acumulador de Fortuna',
+        description: 'Acumula 10,000 puntos',
+        icon: '🤑',
+        type: 'points',
+        rank: 'gold',
+        reward: 2000,
+        target: 10000
+    },
+    {
+        id: 'points_wealthy',
+        title: 'Magnate de Puntos',
+        description: 'Acumula 100,000 puntos',
+        icon: '🏦',
+        type: 'points',
+        rank: 'diamond',
+        reward: 15000,
+        target: 100000
+    },
+    {
+        id: 'points_tycoon',
+        title: 'Emperador de Puntos',
+        description: 'Acumula 1,000,000 puntos',
+        icon: '🌟',
+        type: 'points',
+        rank: 'master',
+        reward: 100000,
+        target: 1000000
+    },
+    // === MISIONES DE COMPRAS (BRONCE → DIAMANTE) ===
+    {
+        id: 'first_upgrade',
+        title: 'Primera Mejora',
+        description: 'Compra tu primera mejora',
+        icon: '🛠️',
+        type: 'upgrade',
+        rank: 'bronze',
+        reward: 20,
+        target: 1
+    },
+    {
+        id: 'upgrade_collector',
+        title: 'Coleccionista de Mejoras',
+        description: 'Compra 10 mejoras en total',
+        icon: '📦',
+        type: 'upgrade',
+        rank: 'silver',
+        reward: 300,
+        target: 10
+    },
+    {
+        id: 'upgrade_hoarder',
+        title: 'Acumulador de Mejoras',
+        description: 'Compra 25 mejoras en total',
+        icon: '🗃️',
+        type: 'upgrade',
+        rank: 'gold',
+        reward: 1000,
+        target: 25
+    },
+    {
+        id: 'first_shop_item',
+        title: 'Primera Compra',
+        description: 'Compra un ítem de la tienda',
+        icon: '🛒',
+        type: 'purchase',
+        rank: 'silver',
+        reward: 500,
+        target: 1
+    },
+    {
+        id: 'shop_enthusiast',
+        title: 'Entusiasta de la Tienda',
+        description: 'Compra 3 ítems de la tienda',
+        icon: '🛍️',
+        type: 'purchase',
+        rank: 'gold',
+        reward: 2500,
+        target: 3
+    },
+    {
+        id: 'shop_master',
+        title: 'Rey de las Compras',
+        description: 'Compra 6 ítems de la tienda',
+        icon: '🏪',
+        type: 'purchase',
+        rank: 'diamond',
+        reward: 10000,
+        target: 6
+    },
+    // === MISIONES DE TIEMPO (BRONCE → MAESTRO) ===
+    {
+        id: 'time_1min',
+        title: 'Primer Minuto',
+        description: 'Juega durante 1 minuto',
+        icon: '⏱️',
+        type: 'time',
+        rank: 'bronze',
+        reward: 15,
+        target: 60
+    },
+    {
+        id: 'time_5min',
+        title: 'Dedicación Inicial',
+        description: 'Juega durante 5 minutos',
+        icon: '⏰',
+        type: 'time',
+        rank: 'bronze',
+        reward: 75,
+        target: 300
+    },
+    {
+        id: 'time_30min',
+        title: 'Jugador Comprometido',
+        description: 'Juega durante 30 minutos',
+        icon: '⏳',
+        type: 'time',
+        rank: 'silver',
+        reward: 400,
+        target: 1800
+    },
+    {
+        id: 'time_1hour',
+        title: 'Maratón de Clicks',
+        description: 'Juega durante 1 hora',
+        icon: '🕐',
+        type: 'time',
+        rank: 'gold',
+        reward: 1200,
+        target: 3600
+    },
+    {
+        id: 'time_3hours',
+        title: 'Adicto al Click',
+        description: 'Juega durante 3 horas',
+        icon: '🕰️',
+        type: 'time',
+        rank: 'diamond',
+        reward: 5000,
+        target: 10800
+    },
+    {
+        id: 'time_10hours',
+        title: 'Leyenda Eterna',
+        description: 'Juega durante 10 horas',
+        icon: '🌙',
+        type: 'time',
+        rank: 'master',
+        reward: 20000,
+        target: 36000
+    },
+    // === MISIONES DE PRESTIGIO (PLATA → MAESTRO) ===
+    {
+        id: 'first_prestige',
+        title: 'Primera Estrella',
+        description: 'Realiza tu primer prestigio',
+        icon: '⭐',
+        type: 'prestige',
+        rank: 'silver',
+        reward: 1000,
+        target: 1
+    },
+    {
+        id: 'prestige_veteran',
+        title: 'Veterano del Prestigio',
+        description: 'Alcanza prestigio nivel 3',
+        icon: '✨',
+        type: 'prestige',
+        rank: 'gold',
+        reward: 5000,
+        target: 3
+    },
+    {
+        id: 'prestige_elite',
+        title: 'Elite Prestigiosa',
+        description: 'Alcanza prestigio nivel 5',
+        icon: '💫',
+        type: 'prestige',
+        rank: 'diamond',
+        reward: 15000,
+        target: 5
+    },
+    {
+        id: 'prestige_master',
+        title: 'Señor del Prestigio',
+        description: 'Alcanza prestigio nivel 10',
+        icon: '🌠',
+        type: 'prestige',
+        rank: 'master',
+        reward: 50000,
+        target: 10
+    }
+];
+// ============================================
+// CONFIGURACIÓN DE ETAPAS
+// ============================================
+/** Clave para guardar progresión en localStorage */
+const PROGRESSION_KEY = 'clickerGameProgression';
+/**
+ * Configuración de etapas del juego
+ * Cada etapa desbloquea nuevas funcionalidades y temas
+ */
+const STAGES_CONFIG = [
+    {
+        id: 'stage_1',
+        name: 'Novato',
+        description: 'Comienzas tu aventura como clickeador',
+        icon: '🌱',
+        requirement: { type: 'points', value: 0 },
+        unlocks: {
+            themes: ['theme_neon_violet'],
+            features: ['basic_gameplay']
+        }
+    },
+    {
+        id: 'stage_2',
+        name: 'Aprendiz',
+        description: 'Has demostrado dedicación',
+        icon: '📚',
+        requirement: { type: 'clicks', value: 100 },
+        unlocks: {
+            themes: ['theme_ocean'],
+            features: ['shop_basic']
+        }
+    },
+    {
+        id: 'stage_3',
+        name: 'Practicante',
+        description: 'Tus habilidades mejoran',
+        icon: '⚡',
+        requirement: { type: 'points', value: 1000 },
+        unlocks: {
+            shopItems: ['golden_finger', 'silver_aura'],
+            themes: ['theme_forest'],
+            features: ['missions']
+        }
+    },
+    {
+        id: 'stage_4',
+        name: 'Experto',
+        description: 'Dominas el arte del click',
+        icon: '🎯',
+        requirement: { type: 'missions', value: 5 },
+        unlocks: {
+            shopItems: ['rainbow_touch', 'auto_boost'],
+            themes: ['theme_sunset'],
+            features: ['statistics']
+        }
+    },
+    {
+        id: 'stage_5',
+        name: 'Veterano',
+        description: 'Tu experiencia es notable',
+        icon: '🏅',
+        requirement: { type: 'points', value: 10000 },
+        unlocks: {
+            shopItems: ['diamond_click', 'point_magnet'],
+            themes: ['theme_cherry'],
+            features: ['prestige']
+        }
+    },
+    {
+        id: 'stage_6',
+        name: 'Maestro',
+        description: 'Has alcanzado la maestría',
+        icon: '👑',
+        requirement: { type: 'prestige', value: 1 },
+        unlocks: {
+            shopItems: ['cosmic_power'],
+            themes: ['theme_gold'],
+            features: ['advanced_stats']
+        }
+    },
+    {
+        id: 'stage_7',
+        name: 'Leyenda',
+        description: 'Tu nombre será recordado',
+        icon: '🌟',
+        requirement: { type: 'missions', value: 15 },
+        unlocks: {
+            themes: ['theme_galaxy'],
+            features: ['all_shop']
+        }
+    },
+    {
+        id: 'stage_8',
+        name: 'Mítico',
+        description: 'Has trascendido los límites',
+        icon: '🔮',
+        requirement: { type: 'prestige', value: 3 },
+        unlocks: {
+            themes: ['theme_rainbow'],
+            features: ['legendary']
+        }
+    },
+    {
+        id: 'stage_9',
+        name: 'Inmortal',
+        description: 'Tu poder es infinito',
+        icon: '💫',
+        requirement: { type: 'points', value: 500000 },
+        unlocks: {
+            themes: ['theme_void'],
+            features: ['ultimate']
+        }
+    },
+    {
+        id: 'stage_10',
+        name: 'Dios del Click',
+        description: 'Has alcanzado la perfección absoluta',
+        icon: '🌌',
+        requirement: { type: 'prestige', value: 10 },
+        unlocks: {
+            themes: ['theme_divine'],
+            features: ['godmode']
+        }
+    }
+];
+// ============================================
+// CONFIGURACIÓN DE TEMAS VISUALES
+// ============================================
+/**
+ * Configuración de temas visuales
+ * Los temas se desbloquean al alcanzar ciertas etapas
+ */
+const THEMES_CONFIG = [
+    {
+        id: 'theme_neon_violet',
+        name: 'Violeta Neón',
+        description: 'El tema clásico del juego',
+        icon: '💜',
+        requirement: { type: 'free', value: 0 },
+        cssClass: 'theme-neon-violet',
+        colors: {
+            primary: '#9d4edd',
+            background: '#0d0015',
+            accent: '#c77dff',
+            neon: '#ff00ff'
+        }
+    },
+    {
+        id: 'theme_ocean',
+        name: 'Océano Profundo',
+        description: 'Sumérgete en las profundidades',
+        icon: '🌊',
+        requirement: { type: 'stage', value: 'stage_2' },
+        cssClass: 'theme-ocean',
+        colors: {
+            primary: '#0077b6',
+            background: '#001219',
+            accent: '#00b4d8',
+            neon: '#00f5ff'
+        }
+    },
+    {
+        id: 'theme_forest',
+        name: 'Bosque Encantado',
+        description: 'La magia de la naturaleza',
+        icon: '🌲',
+        requirement: { type: 'stage', value: 'stage_3' },
+        cssClass: 'theme-forest',
+        colors: {
+            primary: '#2d6a4f',
+            background: '#081c15',
+            accent: '#40916c',
+            neon: '#52b788'
+        }
+    },
+    {
+        id: 'theme_sunset',
+        name: 'Atardecer',
+        description: 'Cálidos colores del ocaso',
+        icon: '🌅',
+        requirement: { type: 'stage', value: 'stage_4' },
+        cssClass: 'theme-sunset',
+        colors: {
+            primary: '#e85d04',
+            background: '#1a0a00',
+            accent: '#f48c06',
+            neon: '#ff6b35'
+        }
+    },
+    {
+        id: 'theme_cherry',
+        name: 'Cerezo en Flor',
+        description: 'Delicada belleza primaveral',
+        icon: '🌸',
+        requirement: { type: 'stage', value: 'stage_5' },
+        cssClass: 'theme-cherry',
+        colors: {
+            primary: '#ff69b4',
+            background: '#1a0a10',
+            accent: '#ffb6c1',
+            neon: '#ff1493'
+        }
+    },
+    {
+        id: 'theme_gold',
+        name: 'Oro Imperial',
+        description: 'El lujo de los campeones',
+        icon: '👑',
+        requirement: { type: 'stage', value: 'stage_6' },
+        cssClass: 'theme-gold',
+        colors: {
+            primary: '#ffd700',
+            background: '#1a1400',
+            accent: '#ffed4a',
+            neon: '#fff700'
+        }
+    },
+    {
+        id: 'theme_galaxy',
+        name: 'Galaxia',
+        description: 'Los colores del cosmos',
+        icon: '🌌',
+        requirement: { type: 'stage', value: 'stage_7' },
+        cssClass: 'theme-galaxy',
+        colors: {
+            primary: '#7b68ee',
+            background: '#0a0a1a',
+            accent: '#9370db',
+            neon: '#ba55d3'
+        }
+    },
+    {
+        id: 'theme_rainbow',
+        name: 'Arcoíris',
+        description: 'Todos los colores del espectro',
+        icon: '🌈',
+        requirement: { type: 'stage', value: 'stage_8' },
+        cssClass: 'theme-rainbow',
+        colors: {
+            primary: '#ff6b6b',
+            background: '#0d0015',
+            accent: '#4ecdc4',
+            neon: '#ffe66d'
+        }
+    },
+    {
+        id: 'theme_void',
+        name: 'Vacío Absoluto',
+        description: 'La oscuridad más profunda',
+        icon: '🕳️',
+        requirement: { type: 'stage', value: 'stage_9' },
+        cssClass: 'theme-void',
+        colors: {
+            primary: '#1a1a2e',
+            background: '#000000',
+            accent: '#4a4a6a',
+            neon: '#6a6aaa'
+        }
+    },
+    {
+        id: 'theme_divine',
+        name: 'Divino',
+        description: 'La luz celestial',
+        icon: '✨',
+        requirement: { type: 'stage', value: 'stage_10' },
+        cssClass: 'theme-divine',
+        colors: {
+            primary: '#ffffff',
+            background: '#0a0a15',
+            accent: '#f0f0ff',
+            neon: '#ffffff'
+        }
+    },
+    {
+        id: 'theme_light',
+        name: 'Modo Claro',
+        description: 'Tema claro para el día',
+        icon: '☀️',
+        requirement: { type: 'clicks', value: 500 },
+        cssClass: 'theme-light',
+        colors: {
+            primary: '#6c63ff',
+            background: '#f5f5f5',
+            accent: '#9d97ff',
+            neon: '#6c63ff'
+        }
+    }
+];
 /** Niveles: puntos requeridos para cada nivel */
 const LEVEL_THRESHOLDS = [
     0, // Nivel 1
@@ -133,6 +1153,8 @@ class ClickerGame {
      * Constructor: inicializa el juego
      */
     constructor() {
+        // Ganancias offline pendientes de reclamar
+        this.pendingOfflineEarnings = null;
         // Multiplicador de puntos (de ítems de tienda)
         this.pointsMultiplier = 1;
         // ID del intervalo del auto-clicker
@@ -141,12 +1163,27 @@ class ClickerGame {
         this.pendingAction = null;
         // Flag para saber si el perfil está visible
         this.isProfileVisible = false;
+        // Flag para saber si las estadísticas están visibles
+        this.isStatsVisible = false;
+        // Pantalla actual
+        this.currentScreen = 'menu';
+        // Sistema de misiones
+        this.missions = [];
+        this.completedMissionIds = [];
+        // Sistema de prestigio
+        this.prestige = this.getDefaultPrestige();
+        // Sistema de progresión y temas
+        this.progression = this.getDefaultProgression();
         // Inicializar estado por defecto
         this.state = this.getDefaultState();
         // Inicializar configuración por defecto
         this.settings = this.getDefaultSettings();
         // Inicializar perfil por defecto
         this.profile = this.getDefaultProfile();
+        // Inicializar estadísticas por defecto
+        this.stats = this.getDefaultStats();
+        // Inicializar sesión actual
+        this.currentSession = this.createNewSession();
         // Obtener referencias a elementos del DOM
         this.elements = this.getElements();
         // Cargar progreso guardado
@@ -155,6 +1192,8 @@ class ClickerGame {
         this.loadSettings();
         // Cargar perfil guardado
         this.loadProfile();
+        // Cargar estadísticas guardadas
+        this.loadStats();
         // Aplicar configuración al juego
         this.applySettings();
         // Aplicar efectos de ítems comprados
@@ -167,8 +1206,131 @@ class ClickerGame {
         this.startAutoClicker();
         // Iniciar contador de tiempo
         this.startTimeTracking();
+        // Iniciar tracking de estadísticas
+        this.startStatsTracking();
+        // Cargar sistema de misiones
+        this.loadMissions();
+        // Cargar sistema de prestigio
+        this.loadPrestige();
+        // Cargar sistema de progresión y temas
+        this.loadProgression();
+        this.applyCurrentTheme();
+        // Configurar listeners del Event Bus
+        this.setupGameEventListeners();
+        // Emitir evento de inicio de sesión
+        eventBus.emit('session:started', {
+            timestamp: Date.now(),
+            sessionNumber: this.stats.totalSessions
+        });
         // Actualizar la UI
         this.updateUI();
+        this.updateMissionsBadge();
+        // Verificar ganancias offline
+        this.checkOfflineEarnings();
+        // Configurar guardado automático y al cerrar
+        this.setupAutoSave();
+    }
+    /**
+     * Configura los listeners del Event Bus
+     * Esto demuestra cómo los sistemas pueden reaccionar a eventos
+     */
+    setupGameEventListeners() {
+        // === MISIONES Y PROGRESIÓN: Actualizar al hacer click ===
+        eventBus.on('click:performed', () => {
+            this.updateAllMissionsProgress();
+            this.checkStageUnlocks();
+            this.checkThemeUnlocks();
+            this.updateStageIndicator();
+        });
+        // === MISIONES Y PROGRESIÓN: Actualizar al cambiar puntos ===
+        eventBus.on('points:changed', (data) => {
+            if (data.source !== 'reset') {
+                this.updateAllMissionsProgress();
+                this.checkStageUnlocks();
+                this.checkThemeUnlocks();
+                this.updateStageIndicator();
+            }
+        });
+        // === MISIONES: Actualizar al comprar ítem ===
+        eventBus.on('shop:item-purchased', () => {
+            this.updateAllMissionsProgress();
+            console.log(`🛒 Compraste un ítem de la tienda`);
+        });
+        // === MISIONES: Actualizar al comprar mejora ===
+        eventBus.on('upgrade:purchased', () => {
+            this.updateAllMissionsProgress();
+        });
+        // === MISIONES Y PROGRESIÓN: Actualizar al prestigiar ===
+        eventBus.on('prestige:performed', (data) => {
+            this.updateAllMissionsProgress();
+            this.checkStageUnlocks();
+            this.checkThemeUnlocks();
+            this.updateStageIndicator();
+            console.log(`⭐ ¡Prestigio nivel ${data.newLevel} alcanzado!`);
+        });
+        // === MISIONES Y PROGRESIÓN: Al completar misión ===
+        eventBus.on('mission:completed', (data) => {
+            // Verificar desbloqueos
+            this.checkStageUnlocks();
+            this.checkThemeUnlocks();
+            this.updateStageIndicator();
+            // Animación visual de la misión completada
+            const missionCard = document.querySelector(`[data-mission-id="${data.mission.id}"]`);
+            if (missionCard) {
+                missionCard.classList.add('just-completed');
+                setTimeout(() => {
+                    missionCard.classList.remove('just-completed');
+                }, 600);
+            }
+        });
+        // === MILESTONES de clicks ===
+        const clickMilestones = [10, 50, 100, 500, 1000, 5000, 10000];
+        eventBus.on('click:performed', (data) => {
+            for (const milestone of clickMilestones) {
+                if (data.totalClicks === milestone) {
+                    eventBus.emit('stats:milestone-reached', {
+                        type: 'clicks',
+                        value: data.totalClicks,
+                        milestone
+                    });
+                    console.log(`🎉 ¡Milestone alcanzado: ${milestone} clicks!`);
+                }
+            }
+        });
+        // === MILESTONES de puntos ===
+        const pointMilestones = [100, 1000, 10000, 100000, 1000000];
+        let lastPointMilestone = 0;
+        eventBus.on('points:changed', (data) => {
+            if (data.source === 'reset') {
+                lastPointMilestone = 0;
+                return;
+            }
+            for (const milestone of pointMilestones) {
+                if (data.newScore >= milestone && lastPointMilestone < milestone) {
+                    lastPointMilestone = milestone;
+                    eventBus.emit('stats:milestone-reached', {
+                        type: 'points',
+                        value: data.newScore,
+                        milestone
+                    });
+                    console.log(`🎉 ¡Milestone alcanzado: ${milestone} puntos!`);
+                }
+            }
+        });
+        // === Level up ===
+        eventBus.on('profile:level-up', (data) => {
+            console.log(`⬆️ ¡Nivel ${data.previousLevel} → ${data.newLevel}!`);
+        });
+        // === Cambio de tema ===
+        eventBus.on('settings:theme-changed', (data) => {
+            console.log(`🎨 Tema cambiado a: ${data.theme}`);
+        });
+        // === Cambio de pantalla ===
+        eventBus.on('ui:screen-changed', (data) => {
+            if (data.previousScreen !== data.newScreen) {
+                console.log(`📱 Pantalla: ${data.previousScreen} → ${data.newScreen}`);
+            }
+        });
     }
     /**
      * Devuelve el estado por defecto del juego
@@ -208,6 +1370,35 @@ class ClickerGame {
         };
     }
     /**
+     * Devuelve las estadísticas por defecto
+     */
+    getDefaultStats() {
+        return {
+            totalClicks: 0,
+            bestClickStreak: 0,
+            totalPointsEarned: 0,
+            manualPointsEarned: 0,
+            autoPointsEarned: 0,
+            totalTimePlayed: 0,
+            activeTime: 0,
+            totalSessions: 0,
+            sessionHistory: []
+        };
+    }
+    /**
+     * Crea una nueva sesión de juego
+     */
+    createNewSession() {
+        return {
+            startTime: Date.now(),
+            clicks: 0,
+            pointsEarned: 0,
+            lastClickTime: 0,
+            clicksInLastSecond: 0,
+            currentStreak: 0
+        };
+    }
+    /**
      * Obtiene referencias a todos los elementos del DOM necesarios
      */
     getElements() {
@@ -218,11 +1409,13 @@ class ClickerGame {
             shopScreen: document.getElementById('shop-screen'),
             profileScreen: document.getElementById('profile-screen'),
             settingsScreen: document.getElementById('settings-screen'),
+            statsScreen: document.getElementById('stats-screen'),
             // Menú
             playButton: document.getElementById('play-button'),
             shopButton: document.getElementById('shop-button'),
             profileButton: document.getElementById('profile-button'),
             settingsButton: document.getElementById('settings-button'),
+            statsButton: document.getElementById('stats-button'),
             // Perfil
             profileAvatar: document.getElementById('profile-avatar'),
             changeAvatarBtn: document.getElementById('change-avatar-btn'),
@@ -242,6 +1435,24 @@ class ClickerGame {
             progressLevel: document.getElementById('progress-level'),
             progressLevelBar: document.getElementById('progress-level-bar'),
             progressLevelHint: document.getElementById('progress-level-hint'),
+            // Estadísticas
+            sessionClicks: document.getElementById('session-clicks'),
+            sessionPoints: document.getElementById('session-points'),
+            sessionDuration: document.getElementById('session-duration'),
+            statsTotalClicks: document.getElementById('stats-total-clicks'),
+            statsCps: document.getElementById('stats-cps'),
+            statsBestStreak: document.getElementById('stats-best-streak'),
+            statsCurrentStreak: document.getElementById('stats-current-streak'),
+            statsTotalPoints: document.getElementById('stats-total-points'),
+            statsPps: document.getElementById('stats-pps'),
+            statsAvgPerClick: document.getElementById('stats-avg-per-click'),
+            statsManualPoints: document.getElementById('stats-manual-points'),
+            statsAutoPoints: document.getElementById('stats-auto-points'),
+            statsTotalTime: document.getElementById('stats-total-time'),
+            statsActiveTime: document.getElementById('stats-active-time'),
+            statsTotalSessions: document.getElementById('stats-total-sessions'),
+            statsAvgSession: document.getElementById('stats-avg-session'),
+            statsHistoryList: document.getElementById('stats-history-list'),
             // Tienda
             shopScore: document.getElementById('shop-score'),
             shopItemsContainer: document.getElementById('shop-items'),
@@ -274,7 +1485,42 @@ class ClickerGame {
             settingAnimationsToggle: document.getElementById('setting-animations'),
             settingConfirmPurchasesToggle: document.getElementById('setting-confirm-purchases'),
             themeButtons: document.querySelectorAll('.theme-btn'),
-            settingsResetBtn: document.getElementById('settings-reset-btn')
+            settingsResetBtn: document.getElementById('settings-reset-btn'),
+            // Misiones
+            missionsScreen: document.getElementById('missions-screen'),
+            missionsButton: document.getElementById('missions-button'),
+            missionsBadge: document.getElementById('missions-badge'),
+            missionsList: document.getElementById('missions-list'),
+            missionsCompleted: document.getElementById('missions-completed'),
+            missionsTotal: document.getElementById('missions-total'),
+            missionsProgressFill: document.getElementById('missions-progress-fill'),
+            // Prestigio
+            prestigeScreen: document.getElementById('prestige-screen'),
+            prestigeButton: document.getElementById('prestige-button'),
+            prestigeCount: document.getElementById('prestige-count'),
+            prestigeLevel: document.getElementById('prestige-level'),
+            prestigeTotalPoints: document.getElementById('prestige-total-points'),
+            prestigeTotalClicks: document.getElementById('prestige-total-clicks'),
+            prestigeTotalItems: document.getElementById('prestige-total-items'),
+            prestigeTotalMissions: document.getElementById('prestige-total-missions'),
+            prestigeRequirement: document.getElementById('prestige-requirement'),
+            prestigeCurrentPoints: document.getElementById('prestige-current-points'),
+            prestigeActionBtn: document.getElementById('prestige-action-btn'),
+            prestigeHistoryList: document.getElementById('prestige-history-list'),
+            // Progresión
+            stageIndicator: document.getElementById('stage-indicator'),
+            stageProgress: document.getElementById('stage-progress'),
+            stageProgressFill: document.getElementById('stage-progress-fill'),
+            stageName: document.getElementById('stage-name'),
+            stageIcon: document.getElementById('stage-icon'),
+            // Selector de temas
+            themeSelector: document.getElementById('theme-selector'),
+            themeSelectorGrid: document.getElementById('theme-selector-grid'),
+            // Modal offline
+            offlineModal: document.getElementById('offline-modal'),
+            offlineTime: document.getElementById('offline-time'),
+            offlinePoints: document.getElementById('offline-points'),
+            offlineClaimBtn: document.getElementById('offline-claim-btn')
         };
     }
     /**
@@ -286,7 +1532,12 @@ class ClickerGame {
         this.elements.shopButton.addEventListener('click', () => this.showScreen('shop'));
         this.elements.profileButton.addEventListener('click', () => this.showScreen('profile'));
         this.elements.settingsButton.addEventListener('click', () => this.showScreen('settings'));
+        this.elements.statsButton.addEventListener('click', () => this.showScreen('stats'));
+        this.elements.missionsButton.addEventListener('click', () => this.showScreen('missions'));
+        this.elements.prestigeButton.addEventListener('click', () => this.showScreen('prestige'));
         this.elements.menuButton.addEventListener('click', () => this.showScreen('menu'));
+        // Botón de acción de prestigio
+        this.elements.prestigeActionBtn.addEventListener('click', () => this.handlePrestigeClick());
         // Botones de volver
         this.elements.backButtons.forEach(btn => {
             btn.addEventListener('click', () => this.showScreen('menu'));
@@ -308,6 +1559,8 @@ class ClickerGame {
                 this.hideConfirmModal();
             }
         });
+        // === MODAL OFFLINE ===
+        this.elements.offlineClaimBtn.addEventListener('click', () => this.claimOfflineEarnings());
         // === EVENTOS DEL PERFIL ===
         // Botón para cambiar avatar
         this.elements.changeAvatarBtn.addEventListener('click', () => this.toggleAvatarSelector());
@@ -366,9 +1619,11 @@ class ClickerGame {
         this.elements.settingsResetBtn.addEventListener('click', () => this.showResetConfirmation());
         // Guardar antes de cerrar la página
         window.addEventListener('beforeunload', () => {
+            this.saveCurrentSession();
             this.saveProgress();
             this.saveSettings();
             this.saveProfile();
+            this.saveStats();
         });
     }
     /**
@@ -380,21 +1635,34 @@ class ClickerGame {
         this.elements.shopScreen.classList.add('hidden');
         this.elements.profileScreen.classList.add('hidden');
         this.elements.settingsScreen.classList.add('hidden');
+        this.elements.statsScreen.classList.add('hidden');
+        this.elements.missionsScreen.classList.add('hidden');
+        this.elements.prestigeScreen.classList.add('hidden');
     }
     /**
      * Muestra una pantalla específica
      */
     showScreen(screen) {
+        const previousScreen = this.currentScreen;
+        this.currentScreen = screen;
         this.hideAllScreens();
         // Ocultar el selector de avatar si estaba abierto
         this.elements.avatarSelector.classList.add('hidden');
         // Marcar si el perfil está visible
         this.isProfileVisible = screen === 'profile';
+        // Marcar si las estadísticas están visibles
+        this.isStatsVisible = screen === 'stats';
+        // Emitir evento de cambio de pantalla
+        eventBus.emit('ui:screen-changed', {
+            previousScreen,
+            newScreen: screen
+        });
         switch (screen) {
             case 'menu':
                 this.elements.mainMenu.classList.remove('hidden');
                 this.saveProgress();
                 this.saveProfile();
+                this.saveStats();
                 break;
             case 'game':
                 this.elements.gameScreen.classList.remove('hidden');
@@ -408,7 +1676,20 @@ class ClickerGame {
                 this.elements.profileScreen.classList.remove('hidden');
                 break;
             case 'settings':
+                this.renderThemeSelector();
                 this.elements.settingsScreen.classList.remove('hidden');
+                break;
+            case 'stats':
+                this.updateStatsUI();
+                this.elements.statsScreen.classList.remove('hidden');
+                break;
+            case 'missions':
+                this.updateMissionsUI();
+                this.elements.missionsScreen.classList.remove('hidden');
+                break;
+            case 'prestige':
+                this.updatePrestigeUI();
+                this.elements.prestigeScreen.classList.remove('hidden');
                 break;
         }
     }
@@ -607,6 +1888,7 @@ class ClickerGame {
         // Actualizar cada segundo (el intervalo se mantiene activo durante toda la sesión)
         window.setInterval(() => {
             this.profile.totalTimePlayed++;
+            this.stats.totalTimePlayed++;
             // Si el perfil está visible, actualizar el display
             if (this.isProfileVisible) {
                 this.elements.statTimePlayed.textContent = this.formatTime(this.profile.totalTimePlayed);
@@ -614,6 +1896,7 @@ class ClickerGame {
             // Guardar cada minuto
             if (this.profile.totalTimePlayed % 60 === 0) {
                 this.saveProfile();
+                this.saveStats();
             }
         }, 1000);
     }
@@ -623,10 +1906,16 @@ class ClickerGame {
     recordPointsEarned(points) {
         this.profile.totalPointsEarned += points;
         // Verificar si subió de nivel
+        const previousLevel = this.profile.level;
         const newLevel = this.calculateLevel(this.profile.totalPointsEarned);
-        if (newLevel > this.profile.level) {
+        if (newLevel > previousLevel) {
             this.profile.level = newLevel;
-            // Aquí se podría agregar una animación de nivel
+            // Emitir evento de level up
+            eventBus.emit('profile:level-up', {
+                previousLevel,
+                newLevel,
+                totalPoints: this.profile.totalPointsEarned
+            });
             console.log(`¡Subiste al nivel ${newLevel}!`);
         }
     }
@@ -635,6 +1924,205 @@ class ClickerGame {
      */
     recordClick() {
         this.profile.totalClicks++;
+    }
+    // ============================================
+    // SISTEMA DE ESTADÍSTICAS AVANZADAS
+    // ============================================
+    /**
+     * Carga las estadísticas desde localStorage
+     */
+    loadStats() {
+        try {
+            const savedStats = localStorage.getItem(STATS_KEY);
+            if (savedStats) {
+                const parsedStats = JSON.parse(savedStats);
+                // Combinar con valores por defecto
+                this.stats = {
+                    ...this.getDefaultStats(),
+                    ...parsedStats,
+                    sessionHistory: parsedStats.sessionHistory || []
+                };
+                // Incrementar contador de sesiones
+                this.stats.totalSessions++;
+                console.log('Estadísticas cargadas correctamente');
+            }
+            else {
+                // Primera sesión
+                this.stats.totalSessions = 1;
+            }
+        }
+        catch (error) {
+            console.error('Error al cargar las estadísticas:', error);
+            this.stats.totalSessions = 1;
+        }
+    }
+    /**
+     * Guarda las estadísticas en localStorage
+     */
+    saveStats() {
+        try {
+            const statsJSON = JSON.stringify(this.stats);
+            localStorage.setItem(STATS_KEY, statsJSON);
+        }
+        catch (error) {
+            console.error('Error al guardar las estadísticas:', error);
+        }
+    }
+    /**
+     * Inicia el tracking de estadísticas en tiempo real
+     */
+    startStatsTracking() {
+        // Actualizar CPS y resetear contador cada segundo
+        window.setInterval(() => {
+            // Actualizar mejor racha si es necesario
+            if (this.currentSession.clicksInLastSecond > this.stats.bestClickStreak) {
+                this.stats.bestClickStreak = this.currentSession.clicksInLastSecond;
+            }
+            // Actualizar racha actual
+            this.currentSession.currentStreak = this.currentSession.clicksInLastSecond;
+            // Resetear contador de clicks del último segundo
+            this.currentSession.clicksInLastSecond = 0;
+            // Si las estadísticas están visibles, actualizar UI
+            if (this.isStatsVisible) {
+                this.updateStatsUI();
+            }
+        }, 1000);
+    }
+    /**
+     * Registra un click en las estadísticas
+     */
+    recordClickStats(points) {
+        const now = Date.now();
+        // Estadísticas globales
+        this.stats.totalClicks++;
+        this.stats.manualPointsEarned += points;
+        this.stats.totalPointsEarned += points;
+        // Sesión actual
+        this.currentSession.clicks++;
+        this.currentSession.pointsEarned += points;
+        this.currentSession.clicksInLastSecond++;
+        // Tiempo activo: si el último click fue hace menos de 2 segundos, sumar 1 segundo
+        if (this.currentSession.lastClickTime > 0 &&
+            now - this.currentSession.lastClickTime < 2000) {
+            this.stats.activeTime++;
+        }
+        this.currentSession.lastClickTime = now;
+    }
+    /**
+     * Registra puntos del auto-clicker
+     */
+    recordAutoPoints(points) {
+        this.stats.autoPointsEarned += points;
+        this.stats.totalPointsEarned += points;
+        this.currentSession.pointsEarned += points;
+    }
+    /**
+     * Actualiza la UI de estadísticas
+     */
+    updateStatsUI() {
+        // Sesión actual
+        const sessionDuration = Math.floor((Date.now() - this.currentSession.startTime) / 1000);
+        this.elements.sessionClicks.textContent = this.formatNumber(this.currentSession.clicks);
+        this.elements.sessionPoints.textContent = this.formatNumber(this.currentSession.pointsEarned);
+        this.elements.sessionDuration.textContent = this.formatTimeShort(sessionDuration);
+        // Actividad
+        this.elements.statsTotalClicks.textContent = this.formatNumber(this.stats.totalClicks);
+        // CPS (clicks por segundo en el último segundo)
+        this.elements.statsCps.textContent = this.currentSession.currentStreak.toFixed(1);
+        this.elements.statsBestStreak.textContent = this.stats.bestClickStreak.toString();
+        this.elements.statsCurrentStreak.textContent = this.currentSession.currentStreak.toString();
+        // Producción
+        this.elements.statsTotalPoints.textContent = this.formatNumber(this.stats.totalPointsEarned);
+        // PPS (puntos por segundo efectivo)
+        const effectivePps = this.state.pointsPerSecond * this.pointsMultiplier;
+        this.elements.statsPps.textContent = effectivePps.toString();
+        // Promedio por click
+        const avgPerClick = this.stats.totalClicks > 0
+            ? (this.stats.manualPointsEarned / this.stats.totalClicks).toFixed(1)
+            : '0.0';
+        this.elements.statsAvgPerClick.textContent = avgPerClick;
+        this.elements.statsManualPoints.textContent = this.formatNumber(this.stats.manualPointsEarned);
+        this.elements.statsAutoPoints.textContent = this.formatNumber(this.stats.autoPointsEarned);
+        // Tiempo
+        this.elements.statsTotalTime.textContent = this.formatTime(this.stats.totalTimePlayed);
+        this.elements.statsActiveTime.textContent = this.formatTime(this.stats.activeTime);
+        this.elements.statsTotalSessions.textContent = this.stats.totalSessions.toString();
+        // Promedio por sesión
+        const avgSessionTime = this.stats.totalSessions > 0
+            ? Math.floor(this.stats.totalTimePlayed / this.stats.totalSessions)
+            : 0;
+        this.elements.statsAvgSession.textContent = this.formatTimeShort(avgSessionTime);
+        // Historial
+        this.renderSessionHistory();
+    }
+    /**
+     * Renderiza el historial de sesiones
+     */
+    renderSessionHistory() {
+        const container = this.elements.statsHistoryList;
+        if (this.stats.sessionHistory.length === 0) {
+            container.innerHTML = '<div class="stats-history-empty">No hay sesiones anteriores</div>';
+            return;
+        }
+        // Mostrar últimas sesiones (más recientes primero)
+        const sessions = [...this.stats.sessionHistory].reverse().slice(0, 5);
+        container.innerHTML = sessions.map(session => `
+            <div class="stats-history-item">
+                <div class="stats-history-info">
+                    <span class="stats-history-date">${session.date}</span>
+                    <span class="stats-history-duration">${this.formatTimeShort(session.duration)}</span>
+                </div>
+                <div class="stats-history-data">
+                    <div class="stats-history-stat">
+                        <span class="stats-history-stat-value">${this.formatNumber(session.clicks)}</span>
+                        <span class="stats-history-stat-label">clicks</span>
+                    </div>
+                    <div class="stats-history-stat">
+                        <span class="stats-history-stat-value">${this.formatNumber(session.pointsEarned)}</span>
+                        <span class="stats-history-stat-label">puntos</span>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    /**
+     * Guarda la sesión actual en el historial
+     */
+    saveCurrentSession() {
+        const sessionDuration = Math.floor((Date.now() - this.currentSession.startTime) / 1000);
+        // Solo guardar si la sesión duró más de 10 segundos y tuvo clicks
+        if (sessionDuration > 10 && this.currentSession.clicks > 0) {
+            const session = {
+                id: this.currentSession.startTime,
+                date: new Date().toLocaleDateString('es-ES', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }),
+                duration: sessionDuration,
+                clicks: this.currentSession.clicks,
+                pointsEarned: this.currentSession.pointsEarned
+            };
+            // Añadir al historial
+            this.stats.sessionHistory.push(session);
+            // Mantener solo las últimas N sesiones
+            if (this.stats.sessionHistory.length > MAX_SESSION_HISTORY) {
+                this.stats.sessionHistory = this.stats.sessionHistory.slice(-MAX_SESSION_HISTORY);
+            }
+        }
+    }
+    /**
+     * Formatea tiempo en formato corto (M:SS o H:MM:SS)
+     */
+    formatTimeShort(totalSeconds) {
+        if (totalSeconds < 3600) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+        return this.formatTime(totalSeconds);
     }
     // ============================================
     // SISTEMA DE CONFIGURACIÓN
@@ -714,6 +2202,9 @@ class ClickerGame {
         this.applyThemeSetting();
         this.updateThemeButtons();
         this.saveSettings();
+        // Emitir evento
+        eventBus.emit('settings:theme-changed', { theme });
+        eventBus.emit('settings:changed', { setting: 'theme', value: theme });
     }
     /**
      * Actualiza los botones de tema para mostrar el activo
@@ -810,12 +2301,24 @@ class ClickerGame {
      * Ejecuta la compra de un ítem (después de confirmación)
      */
     executePurchase(item) {
+        const previousScore = this.state.score;
         // Descontar puntos
         this.state.score -= item.price;
         // Marcar como comprado
         this.state.purchasedItems.push(item.id);
         // Aplicar efecto del ítem
         this.applyItemEffect(item);
+        // === EMITIR EVENTOS ===
+        eventBus.emit('shop:item-purchased', {
+            item,
+            newScore: this.state.score
+        });
+        eventBus.emit('points:changed', {
+            previousScore,
+            newScore: this.state.score,
+            delta: -item.price,
+            source: 'purchase'
+        });
         // Animación de compra exitosa
         const itemElement = this.elements.shopItemsContainer.querySelector(`[data-item-id="${item.id}"]`);
         if (itemElement) {
@@ -914,12 +2417,28 @@ class ClickerGame {
      * Maneja el click en el botón principal
      */
     handleClick() {
+        // Guardar puntuación anterior
+        const previousScore = this.state.score;
         // Sumar puntos (con multiplicador)
         const points = this.state.pointsPerClick * this.pointsMultiplier;
         this.state.score += points;
         // Registrar estadísticas del perfil
         this.recordClick();
         this.recordPointsEarned(points);
+        // Registrar estadísticas avanzadas
+        this.recordClickStats(points);
+        // === EMITIR EVENTOS ===
+        eventBus.emit('click:performed', {
+            points,
+            totalClicks: this.profile.totalClicks,
+            timestamp: Date.now()
+        });
+        eventBus.emit('points:changed', {
+            previousScore,
+            newScore: this.state.score,
+            delta: points,
+            source: 'click'
+        });
         // Mostrar feedback visual
         this.showClickFeedback();
         // Actualizar UI y guardar
@@ -967,12 +2486,25 @@ class ClickerGame {
         const price = this.getClickUpgradePrice();
         // Verificar si hay suficientes puntos
         if (this.state.score >= price) {
+            const previousScore = this.state.score;
             // Restar el precio
             this.state.score -= price;
             // Incrementar el nivel de mejora
             this.state.clickUpgradeLevel++;
             // Incrementar los puntos por click
             this.state.pointsPerClick += CLICK_UPGRADE_CONFIG.effect;
+            // Emitir eventos
+            eventBus.emit('upgrade:purchased', {
+                upgradeType: 'click',
+                newLevel: this.state.clickUpgradeLevel,
+                price
+            });
+            eventBus.emit('points:changed', {
+                previousScore,
+                newScore: this.state.score,
+                delta: -price,
+                source: 'purchase'
+            });
             // Actualizar UI y guardar
             this.updateUI();
             this.updateShopUI();
@@ -986,12 +2518,25 @@ class ClickerGame {
         const price = this.getAutoUpgradePrice();
         // Verificar si hay suficientes puntos
         if (this.state.score >= price) {
+            const previousScore = this.state.score;
             // Restar el precio
             this.state.score -= price;
             // Incrementar el nivel de mejora
             this.state.autoUpgradeLevel++;
             // Incrementar los puntos por segundo
             this.state.pointsPerSecond += AUTO_UPGRADE_CONFIG.effect;
+            // Emitir eventos
+            eventBus.emit('upgrade:purchased', {
+                upgradeType: 'auto',
+                newLevel: this.state.autoUpgradeLevel,
+                price
+            });
+            eventBus.emit('points:changed', {
+                previousScore,
+                newScore: this.state.score,
+                delta: -price,
+                source: 'purchase'
+            });
             // Reiniciar el auto-clicker con los nuevos valores
             this.startAutoClicker();
             // Actualizar UI y guardar
@@ -1012,11 +2557,21 @@ class ClickerGame {
         // Solo iniciar si hay puntos por segundo
         if (this.state.pointsPerSecond > 0) {
             this.autoClickerInterval = window.setInterval(() => {
+                const previousScore = this.state.score;
                 // Aplicar multiplicador
                 const points = this.state.pointsPerSecond * this.pointsMultiplier;
                 this.state.score += points;
                 // Registrar puntos ganados en el perfil
                 this.recordPointsEarned(points);
+                // Registrar puntos automáticos en estadísticas
+                this.recordAutoPoints(points);
+                // Emitir evento de cambio de puntos
+                eventBus.emit('points:changed', {
+                    previousScore,
+                    newScore: this.state.score,
+                    delta: points,
+                    source: 'auto'
+                });
                 this.updateUI();
                 this.updateShopUI();
                 this.saveProgress();
@@ -1137,12 +2692,13 @@ class ClickerGame {
      * Ejecuta la acción pendiente del modal
      */
     confirmAction() {
-        // Ocultar el modal
+        // Guardar la acción antes de ocultar el modal
+        const action = this.pendingAction;
+        // Ocultar el modal (esto limpia pendingAction)
         this.hideConfirmModal();
-        // Ejecutar la acción pendiente si existe
-        if (this.pendingAction) {
-            this.pendingAction();
-            this.pendingAction = null;
+        // Ejecutar la acción si existe
+        if (action) {
+            action();
         }
     }
     /**
@@ -1160,8 +2716,6 @@ class ClickerGame {
             clearInterval(this.autoClickerInterval);
             this.autoClickerInterval = null;
         }
-        // Reiniciar contador de tiempo (pero no detener)
-        // El tiempo se resetea en el perfil
         // Quitar efectos visuales de ítems comprados
         SHOP_ITEMS.forEach(item => {
             if (item.effect.type === 'visual') {
@@ -1178,13 +2732,846 @@ class ClickerGame {
         this.profile = this.getDefaultProfile();
         this.profile.name = savedName;
         this.profile.avatar = savedAvatar;
-        // Limpiar localStorage del juego y perfil
+        // Resetear estadísticas avanzadas (mantener historial)
+        const savedHistory = this.stats.sessionHistory;
+        this.stats = this.getDefaultStats();
+        this.stats.sessionHistory = savedHistory;
+        this.stats.totalSessions = savedHistory.length + 1;
+        // Resetear sesión actual
+        this.currentSession = this.createNewSession();
+        // Limpiar localStorage del juego
         localStorage.removeItem(STORAGE_KEY);
-        this.saveProfile(); // Guardar perfil reseteado
+        this.saveProfile();
+        this.saveStats();
+        // Emitir evento de reset
+        eventBus.emit('game:reset', { timestamp: Date.now() });
+        eventBus.emit('points:changed', {
+            previousScore: 0,
+            newScore: 0,
+            delta: 0,
+            source: 'reset'
+        });
         // Actualizar UI
         this.updateUI();
         this.updateShopUI();
         console.log('Juego reiniciado');
+    }
+    // ============================================
+    // SISTEMA DE MISIONES
+    // ============================================
+    /**
+     * Carga las misiones desde localStorage y configura el sistema
+     */
+    loadMissions() {
+        // Cargar IDs de misiones completadas
+        const savedData = localStorage.getItem(MISSIONS_KEY);
+        if (savedData) {
+            try {
+                const parsed = JSON.parse(savedData);
+                this.completedMissionIds = parsed.completedIds || [];
+            }
+            catch {
+                this.completedMissionIds = [];
+            }
+        }
+        // Inicializar misiones desde la configuración
+        this.missions = MISSIONS_CONFIG.map(config => ({
+            ...config,
+            progress: 0,
+            completed: this.completedMissionIds.includes(config.id),
+            completedAt: this.completedMissionIds.includes(config.id) ? Date.now() : undefined
+        }));
+        // Actualizar progreso inicial de las misiones
+        this.updateAllMissionsProgress();
+    }
+    /**
+     * Guarda las misiones en localStorage
+     */
+    saveMissions() {
+        const data = {
+            completedIds: this.completedMissionIds
+        };
+        localStorage.setItem(MISSIONS_KEY, JSON.stringify(data));
+    }
+    /**
+     * Actualiza el progreso de todas las misiones
+     */
+    updateAllMissionsProgress() {
+        const totalClicks = this.profile.totalClicks;
+        const totalPoints = this.profile.totalPointsEarned;
+        const totalUpgrades = this.state.clickUpgradeLevel + this.state.autoUpgradeLevel;
+        const totalPurchases = this.state.purchasedItems.length;
+        const totalTime = this.stats.totalTimePlayed;
+        const prestigeLevel = this.prestige.level;
+        this.missions.forEach(mission => {
+            if (mission.completed)
+                return;
+            let newProgress = 0;
+            switch (mission.type) {
+                case 'clicks':
+                    newProgress = totalClicks;
+                    break;
+                case 'points':
+                    newProgress = totalPoints;
+                    break;
+                case 'upgrade':
+                    newProgress = totalUpgrades;
+                    break;
+                case 'purchase':
+                    newProgress = totalPurchases;
+                    break;
+                case 'time':
+                    newProgress = totalTime;
+                    break;
+                case 'prestige':
+                    newProgress = prestigeLevel;
+                    break;
+            }
+            mission.progress = Math.min(newProgress, mission.target);
+            // Verificar si se completó
+            if (mission.progress >= mission.target && !mission.completed) {
+                this.completeMission(mission);
+            }
+        });
+    }
+    /**
+     * Completa una misión
+     */
+    completeMission(mission) {
+        mission.completed = true;
+        mission.completedAt = Date.now();
+        this.completedMissionIds.push(mission.id);
+        // === DAR RECOMPENSA DE PUNTOS ===
+        const previousScore = this.state.score;
+        this.state.score += mission.reward;
+        // Emitir evento de cambio de puntos
+        eventBus.emit('points:changed', {
+            previousScore,
+            newScore: this.state.score,
+            delta: mission.reward,
+            source: 'click' // Usamos 'click' para que no resetee milestones
+        });
+        // Actualizar UI
+        this.updateUI();
+        this.updateShopUI();
+        this.saveProgress();
+        // Actualizar estadísticas de prestigio
+        this.prestige.totalHistoricMissions++;
+        this.savePrestige();
+        this.saveMissions();
+        // Emitir evento de misión completada
+        eventBus.emit('mission:completed', {
+            mission,
+            timestamp: Date.now()
+        });
+        const rankInfo = MISSION_RANKS[mission.rank];
+        console.log(`🎯 ¡Misión ${rankInfo.icon} ${rankInfo.name} completada: ${mission.title}! +${this.formatNumber(mission.reward)} puntos`);
+        // Actualizar badge
+        this.updateMissionsBadge();
+    }
+    /**
+     * Actualiza el badge de misiones completadas en el menú
+     */
+    updateMissionsBadge() {
+        const pendingCount = this.missions.filter(m => !m.completed).length;
+        const badge = this.elements.missionsBadge;
+        if (pendingCount > 0) {
+            badge.textContent = pendingCount.toString();
+            badge.classList.remove('hidden');
+        }
+        else {
+            badge.classList.add('hidden');
+        }
+    }
+    /**
+     * Actualiza la UI de misiones
+     */
+    updateMissionsUI() {
+        const completedCount = this.missions.filter(m => m.completed).length;
+        const totalCount = this.missions.length;
+        const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+        // Actualizar resumen
+        this.elements.missionsCompleted.textContent = completedCount.toString();
+        this.elements.missionsTotal.textContent = totalCount.toString();
+        this.elements.missionsProgressFill.style.width = `${progressPercent}%`;
+        // Actualizar progreso actual de misiones
+        this.updateAllMissionsProgress();
+        // Renderizar lista de misiones
+        this.renderMissionsList();
+    }
+    /**
+     * Renderiza la lista de misiones
+     */
+    renderMissionsList() {
+        const container = this.elements.missionsList;
+        // Ordenar: por rango (no completadas primero), luego completadas al final
+        const rankOrder = {
+            bronze: 1, silver: 2, gold: 3, diamond: 4, master: 5
+        };
+        const sortedMissions = [...this.missions].sort((a, b) => {
+            // Primero ordenar por completadas (no completadas primero)
+            if (a.completed !== b.completed) {
+                return a.completed ? 1 : -1;
+            }
+            // Luego por rango
+            return rankOrder[a.rank] - rankOrder[b.rank];
+        });
+        container.innerHTML = sortedMissions.map(mission => {
+            const progressPercent = mission.target > 0 ? (mission.progress / mission.target) * 100 : 0;
+            const progressText = this.formatMissionProgress(mission);
+            const rankInfo = MISSION_RANKS[mission.rank];
+            return `
+                <div class="mission-card ${mission.completed ? 'completed' : ''} mission-rank-${mission.rank}" data-mission-id="${mission.id}">
+                    <div class="mission-rank-badge" style="background: ${rankInfo.color}">
+                        ${rankInfo.icon}
+                    </div>
+                    <div class="mission-icon">${mission.icon}</div>
+                    <div class="mission-info">
+                        <div class="mission-header">
+                            <div class="mission-title">${mission.title}</div>
+                            <div class="mission-rank-label" style="color: ${rankInfo.color}">${rankInfo.name}</div>
+                        </div>
+                        <div class="mission-description">${mission.description}</div>
+                        <div class="mission-reward">
+                            <span class="mission-reward-icon">🎁</span>
+                            <span class="mission-reward-value">+${this.formatNumber(mission.reward)} puntos</span>
+                        </div>
+                    </div>
+                    ${mission.completed ? `
+                        <div class="mission-completed-section">
+                            <div class="mission-badge">✓</div>
+                            <div class="mission-claimed">Reclamado</div>
+                        </div>
+                    ` : `
+                        <div class="mission-progress-section">
+                            <div class="mission-progress-text">${progressText}</div>
+                            <div class="mission-progress-bar">
+                                <div class="mission-progress-fill" style="width: ${Math.min(progressPercent, 100)}%; background: ${rankInfo.color}"></div>
+                            </div>
+                        </div>
+                    `}
+                </div>
+            `;
+        }).join('');
+    }
+    /**
+     * Formatea el progreso de una misión para mostrar
+     */
+    formatMissionProgress(mission) {
+        if (mission.type === 'time') {
+            const progressMin = Math.floor(mission.progress / 60);
+            const targetMin = Math.floor(mission.target / 60);
+            return `${progressMin}/${targetMin} min`;
+        }
+        return `${this.formatNumber(mission.progress)}/${this.formatNumber(mission.target)}`;
+    }
+    // ============================================
+    // SISTEMA DE PRESTIGIO
+    // ============================================
+    /**
+     * Retorna el estado de prestigio por defecto
+     */
+    getDefaultPrestige() {
+        return {
+            level: 0,
+            totalHistoricPoints: 0,
+            totalHistoricClicks: 0,
+            totalHistoricItems: 0,
+            totalHistoricMissions: 0,
+            history: []
+        };
+    }
+    /**
+     * Carga el estado de prestigio desde localStorage
+     */
+    loadPrestige() {
+        const savedData = localStorage.getItem(PRESTIGE_KEY);
+        if (savedData) {
+            try {
+                const parsed = JSON.parse(savedData);
+                this.prestige = {
+                    ...this.getDefaultPrestige(),
+                    ...parsed
+                };
+            }
+            catch {
+                this.prestige = this.getDefaultPrestige();
+            }
+        }
+        // Actualizar contador en el menú
+        this.elements.prestigeCount.textContent = `×${this.prestige.level}`;
+    }
+    /**
+     * Guarda el estado de prestigio en localStorage
+     */
+    savePrestige() {
+        localStorage.setItem(PRESTIGE_KEY, JSON.stringify(this.prestige));
+    }
+    /**
+     * Calcula los puntos requeridos para prestigiar
+     */
+    getPrestigeRequirement() {
+        return PRESTIGE_BASE_REQUIREMENT * Math.pow(PRESTIGE_REQUIREMENT_MULTIPLIER, this.prestige.level);
+    }
+    /**
+     * Verifica si puede prestigiar
+     */
+    canPrestige() {
+        return this.profile.totalPointsEarned >= this.getPrestigeRequirement();
+    }
+    /**
+     * Maneja el click en el botón de prestigio
+     */
+    handlePrestigeClick() {
+        if (!this.canPrestige())
+            return;
+        this.showConfirmModal('⭐ Confirmar Prestigio', `¿Estás seguro de que quieres prestigiar? Perderás todo tu progreso actual pero conservarás tus logros y estadísticas históricas. Tu nivel de prestigio aumentará a ${this.prestige.level + 1}.`, 'Prestigiar', () => this.performPrestige());
+    }
+    /**
+     * Ejecuta el prestigio
+     */
+    performPrestige() {
+        const pointsAtPrestige = this.profile.totalPointsEarned;
+        const clicksAtPrestige = this.profile.totalClicks;
+        // Actualizar estadísticas históricas
+        this.prestige.totalHistoricPoints += pointsAtPrestige;
+        this.prestige.totalHistoricClicks += clicksAtPrestige;
+        this.prestige.totalHistoricItems += this.state.purchasedItems.length;
+        // Incrementar nivel
+        this.prestige.level++;
+        // Añadir al historial
+        const record = {
+            number: this.prestige.level,
+            date: new Date().toLocaleDateString('es-ES'),
+            pointsAtPrestige,
+            clicksAtPrestige
+        };
+        this.prestige.history.unshift(record);
+        // Limitar historial
+        if (this.prestige.history.length > MAX_PRESTIGE_HISTORY) {
+            this.prestige.history = this.prestige.history.slice(0, MAX_PRESTIGE_HISTORY);
+        }
+        // Guardar prestigio
+        this.savePrestige();
+        // Emitir evento de prestigio
+        eventBus.emit('prestige:performed', {
+            newLevel: this.prestige.level,
+            pointsAtPrestige,
+            clicksAtPrestige,
+            timestamp: Date.now()
+        });
+        // Resetear el juego (pero mantener logros y stats)
+        this.resetForPrestige();
+        // Mostrar efecto visual
+        this.showPrestigeEffect();
+        // Actualizar UI
+        this.elements.prestigeCount.textContent = `×${this.prestige.level}`;
+        this.updatePrestigeUI();
+        console.log(`⭐ ¡Prestigio nivel ${this.prestige.level} alcanzado!`);
+    }
+    /**
+     * Resetea el juego para el prestigio (mantiene logros y stats globales)
+     */
+    resetForPrestige() {
+        // Detener auto-clicker
+        if (this.autoClickerInterval !== null) {
+            clearInterval(this.autoClickerInterval);
+            this.autoClickerInterval = null;
+        }
+        // Quitar efectos visuales de ítems
+        SHOP_ITEMS.forEach(item => {
+            if (item.effect.type === 'visual') {
+                this.elements.clickButton.classList.remove(item.effect.value);
+            }
+        });
+        // Resetear multiplicador
+        this.pointsMultiplier = 1;
+        // Resetear estado del juego
+        this.state = this.getDefaultState();
+        // Resetear perfil (mantener nombre y avatar)
+        const savedName = this.profile.name;
+        const savedAvatar = this.profile.avatar;
+        this.profile = this.getDefaultProfile();
+        this.profile.name = savedName;
+        this.profile.avatar = savedAvatar;
+        // Limpiar localStorage del juego
+        localStorage.removeItem(STORAGE_KEY);
+        this.saveProfile();
+        // Actualizar misiones (el progreso se recalcula)
+        this.updateAllMissionsProgress();
+        // Actualizar UI
+        this.updateUI();
+        this.updateShopUI();
+    }
+    /**
+     * Muestra un efecto visual de prestigio
+     */
+    showPrestigeEffect() {
+        const flash = document.createElement('div');
+        flash.className = 'prestige-flash';
+        document.body.appendChild(flash);
+        setTimeout(() => {
+            flash.remove();
+        }, 1000);
+    }
+    /**
+     * Actualiza la UI de prestigio
+     */
+    updatePrestigeUI() {
+        const requirement = this.getPrestigeRequirement();
+        const currentPoints = this.profile.totalPointsEarned;
+        const canPrestige = this.canPrestige();
+        // Nivel de prestigio
+        this.elements.prestigeLevel.textContent = this.prestige.level.toString();
+        // Estadísticas históricas
+        this.elements.prestigeTotalPoints.textContent = this.formatNumber(this.prestige.totalHistoricPoints);
+        this.elements.prestigeTotalClicks.textContent = this.formatNumber(this.prestige.totalHistoricClicks);
+        this.elements.prestigeTotalItems.textContent = this.prestige.totalHistoricItems.toString();
+        this.elements.prestigeTotalMissions.textContent = this.prestige.totalHistoricMissions.toString();
+        // Requisito y puntos actuales
+        this.elements.prestigeRequirement.textContent = this.formatNumber(requirement) + ' puntos';
+        this.elements.prestigeCurrentPoints.textContent = this.formatNumber(currentPoints);
+        // Botón de prestigio
+        this.elements.prestigeActionBtn.disabled = !canPrestige;
+        // Renderizar historial
+        this.renderPrestigeHistory();
+    }
+    /**
+     * Renderiza el historial de prestigios
+     */
+    renderPrestigeHistory() {
+        const container = this.elements.prestigeHistoryList;
+        if (this.prestige.history.length === 0) {
+            container.innerHTML = '<div class="prestige-history-empty">Aún no has prestigiado</div>';
+            return;
+        }
+        container.innerHTML = this.prestige.history.map(record => `
+            <div class="prestige-history-item">
+                <div class="prestige-history-number">⭐ Prestigio #${record.number}</div>
+                <div class="prestige-history-date">${record.date}</div>
+                <div class="prestige-history-points">${this.formatNumber(record.pointsAtPrestige)} pts</div>
+            </div>
+        `).join('');
+    }
+    // ============================================
+    // SISTEMA DE PROGRESIÓN POR ETAPAS
+    // ============================================
+    /**
+     * Retorna el estado de progresión por defecto
+     */
+    getDefaultProgression() {
+        return {
+            currentStage: 0,
+            unlockedStages: ['stage_1'],
+            unlockedThemes: ['theme_neon_violet'],
+            activeTheme: 'theme_neon_violet'
+        };
+    }
+    /**
+     * Carga la progresión desde localStorage
+     */
+    loadProgression() {
+        const savedData = localStorage.getItem(PROGRESSION_KEY);
+        if (savedData) {
+            try {
+                const parsed = JSON.parse(savedData);
+                this.progression = {
+                    ...this.getDefaultProgression(),
+                    ...parsed
+                };
+            }
+            catch {
+                this.progression = this.getDefaultProgression();
+            }
+        }
+        // Verificar desbloqueos al cargar
+        this.checkStageUnlocks();
+        this.checkThemeUnlocks();
+        this.updateStageIndicator();
+    }
+    /**
+     * Guarda la progresión en localStorage
+     */
+    saveProgression() {
+        localStorage.setItem(PROGRESSION_KEY, JSON.stringify(this.progression));
+    }
+    /**
+     * Obtiene la etapa actual
+     */
+    getCurrentStage() {
+        const stage = STAGES_CONFIG[this.progression.currentStage];
+        return stage ?? STAGES_CONFIG[0];
+    }
+    /**
+     * Obtiene la siguiente etapa (si existe)
+     */
+    getNextStage() {
+        const nextIndex = this.progression.currentStage + 1;
+        if (nextIndex >= STAGES_CONFIG.length)
+            return null;
+        const stage = STAGES_CONFIG[nextIndex];
+        return stage ?? null;
+    }
+    /**
+     * Verifica el valor actual de un requisito
+     */
+    getRequirementValue(type) {
+        switch (type) {
+            case 'points':
+                return this.profile.totalPointsEarned;
+            case 'clicks':
+                return this.profile.totalClicks;
+            case 'missions':
+                return this.completedMissionIds.length;
+            case 'prestige':
+                return this.prestige.level;
+            case 'purchases':
+                return this.state.purchasedItems.length;
+            case 'upgrades':
+                return this.state.clickUpgradeLevel + this.state.autoUpgradeLevel;
+            default:
+                return 0;
+        }
+    }
+    /**
+     * Verifica si una etapa está desbloqueada
+     */
+    isStageUnlocked(stage) {
+        const currentValue = this.getRequirementValue(stage.requirement.type);
+        return currentValue >= stage.requirement.value;
+    }
+    /**
+     * Verifica y desbloquea etapas
+     */
+    checkStageUnlocks() {
+        let stageChanged = false;
+        STAGES_CONFIG.forEach((stage, index) => {
+            if (!this.progression.unlockedStages.includes(stage.id)) {
+                if (this.isStageUnlocked(stage)) {
+                    // Desbloquear etapa
+                    this.progression.unlockedStages.push(stage.id);
+                    // Actualizar etapa actual si es la siguiente
+                    if (index > this.progression.currentStage) {
+                        this.progression.currentStage = index;
+                        stageChanged = true;
+                        // Emitir evento
+                        eventBus.emit('stage:unlocked', {
+                            stage,
+                            stageIndex: index,
+                            timestamp: Date.now()
+                        });
+                        console.log(`🎉 ¡Nueva etapa desbloqueada: ${stage.name}!`);
+                    }
+                    // Desbloquear temas de la etapa
+                    if (stage.unlocks.themes) {
+                        stage.unlocks.themes.forEach(themeId => {
+                            if (!this.progression.unlockedThemes.includes(themeId)) {
+                                this.progression.unlockedThemes.push(themeId);
+                                const theme = THEMES_CONFIG.find(t => t.id === themeId);
+                                if (theme) {
+                                    eventBus.emit('theme:unlocked', { theme, timestamp: Date.now() });
+                                    console.log(`🎨 ¡Nuevo tema desbloqueado: ${theme.name}!`);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        });
+        if (stageChanged) {
+            this.saveProgression();
+            this.updateStageIndicator();
+        }
+    }
+    /**
+     * Verifica y desbloquea temas por otros requisitos
+     */
+    checkThemeUnlocks() {
+        THEMES_CONFIG.forEach(theme => {
+            if (this.progression.unlockedThemes.includes(theme.id))
+                return;
+            let unlocked = false;
+            switch (theme.requirement.type) {
+                case 'free':
+                    unlocked = true;
+                    break;
+                case 'stage':
+                    unlocked = this.progression.unlockedStages.includes(theme.requirement.value);
+                    break;
+                case 'missions':
+                    unlocked = this.completedMissionIds.length >= theme.requirement.value;
+                    break;
+                case 'prestige':
+                    unlocked = this.prestige.level >= theme.requirement.value;
+                    break;
+                case 'clicks':
+                    unlocked = this.profile.totalClicks >= theme.requirement.value;
+                    break;
+                case 'points':
+                    unlocked = this.profile.totalPointsEarned >= theme.requirement.value;
+                    break;
+            }
+            if (unlocked) {
+                this.progression.unlockedThemes.push(theme.id);
+                this.saveProgression();
+                eventBus.emit('theme:unlocked', { theme, timestamp: Date.now() });
+                console.log(`🎨 ¡Nuevo tema desbloqueado: ${theme.name}!`);
+            }
+        });
+    }
+    /**
+     * Actualiza el indicador de etapa en el menú
+     */
+    updateStageIndicator() {
+        const currentStage = this.getCurrentStage();
+        const nextStage = this.getNextStage();
+        if (this.elements.stageName) {
+            this.elements.stageName.textContent = currentStage.name;
+        }
+        if (this.elements.stageIcon) {
+            this.elements.stageIcon.textContent = currentStage.icon;
+        }
+        // Calcular progreso hacia la siguiente etapa
+        if (nextStage && this.elements.stageProgressFill) {
+            const currentValue = this.getRequirementValue(nextStage.requirement.type);
+            const targetValue = nextStage.requirement.value;
+            const progress = Math.min((currentValue / targetValue) * 100, 100);
+            this.elements.stageProgressFill.style.width = `${progress}%`;
+        }
+        else if (this.elements.stageProgressFill) {
+            this.elements.stageProgressFill.style.width = '100%';
+        }
+    }
+    // ============================================
+    // SISTEMA DE TEMAS VISUALES
+    // ============================================
+    /**
+     * Aplica el tema actual
+     */
+    applyCurrentTheme() {
+        const theme = THEMES_CONFIG.find(t => t.id === this.progression.activeTheme);
+        if (!theme)
+            return;
+        // Remover todas las clases de tema
+        THEMES_CONFIG.forEach(t => {
+            document.body.classList.remove(t.cssClass);
+        });
+        // Añadir clase del tema actual
+        document.body.classList.add(theme.cssClass);
+        // Aplicar variables CSS
+        document.documentElement.style.setProperty('--primary-color', theme.colors.primary);
+        document.documentElement.style.setProperty('--neon-accent', theme.colors.neon);
+        document.documentElement.style.setProperty('--background-color', theme.colors.background);
+        document.documentElement.style.setProperty('--secondary-color', theme.colors.accent);
+    }
+    /**
+     * Cambia el tema activo
+     */
+    setThemeById(themeId) {
+        if (!this.progression.unlockedThemes.includes(themeId)) {
+            console.log('Tema no desbloqueado:', themeId);
+            return;
+        }
+        const previousTheme = this.progression.activeTheme;
+        this.progression.activeTheme = themeId;
+        this.applyCurrentTheme();
+        this.saveProgression();
+        this.renderThemeSelector();
+        eventBus.emit('theme:changed', { previousTheme, newTheme: themeId });
+        const theme = THEMES_CONFIG.find(t => t.id === themeId);
+        console.log(`🎨 Tema cambiado a: ${theme?.name}`);
+    }
+    /**
+     * Renderiza el selector de temas en la configuración
+     */
+    renderThemeSelector() {
+        const container = this.elements.themeSelectorGrid;
+        if (!container)
+            return;
+        container.innerHTML = THEMES_CONFIG.map(theme => {
+            const isUnlocked = this.progression.unlockedThemes.includes(theme.id);
+            const isActive = this.progression.activeTheme === theme.id;
+            let requirementText = '';
+            if (!isUnlocked) {
+                switch (theme.requirement.type) {
+                    case 'stage':
+                        const stage = STAGES_CONFIG.find(s => s.id === theme.requirement.value);
+                        requirementText = `Etapa: ${stage?.name || theme.requirement.value}`;
+                        break;
+                    case 'missions':
+                        requirementText = `${theme.requirement.value} misiones`;
+                        break;
+                    case 'prestige':
+                        requirementText = `Prestigio ${theme.requirement.value}`;
+                        break;
+                    case 'clicks':
+                        requirementText = `${this.formatNumber(theme.requirement.value)} clicks`;
+                        break;
+                    case 'points':
+                        requirementText = `${this.formatNumber(theme.requirement.value)} puntos`;
+                        break;
+                }
+            }
+            return `
+                <button class="theme-option ${isActive ? 'active' : ''} ${!isUnlocked ? 'locked' : ''}" 
+                        data-theme-id="${theme.id}"
+                        ${!isUnlocked ? 'disabled' : ''}>
+                    <div class="theme-option-preview" style="background: linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary})">
+                        <span class="theme-option-icon">${theme.icon}</span>
+                    </div>
+                    <div class="theme-option-info">
+                        <span class="theme-option-name">${theme.name}</span>
+                        ${!isUnlocked ? `<span class="theme-option-lock">🔒 ${requirementText}</span>` : ''}
+                        ${isActive ? '<span class="theme-option-active">✓ Activo</span>' : ''}
+                    </div>
+                </button>
+            `;
+        }).join('');
+        // Añadir event listeners
+        container.querySelectorAll('.theme-option:not(.locked)').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const target = e.currentTarget;
+                const themeId = target.dataset.themeId;
+                if (themeId) {
+                    this.setThemeById(themeId);
+                }
+            });
+        });
+    }
+    // ============================================
+    // SISTEMA DE GANANCIAS OFFLINE
+    // ============================================
+    /**
+     * Verifica si hay ganancias offline pendientes
+     */
+    checkOfflineEarnings() {
+        // Calcular puntos por segundo actual (de auto-clickers con multiplicador)
+        const pointsPerSecond = this.state.pointsPerSecond * this.pointsMultiplier;
+        // Si no hay auto-clickers, no hay ganancias offline
+        if (pointsPerSecond <= 0) {
+            return;
+        }
+        // Calcular ganancias offline
+        const offlineEarnings = saveManager.calculateOfflineEarnings(pointsPerSecond);
+        // Solo mostrar si hay ganancias significativas y tiempo fuera > 1 minuto
+        if (offlineEarnings.pointsEarned > 0 && offlineEarnings.timeAway >= 60) {
+            this.pendingOfflineEarnings = offlineEarnings;
+            this.showOfflineModal(offlineEarnings);
+            // Emitir evento
+            eventBus.emit('offline:earnings-calculated', {
+                timeAway: offlineEarnings.timeAway,
+                pointsEarned: offlineEarnings.pointsEarned
+            });
+        }
+    }
+    /**
+     * Muestra el modal de ganancias offline
+     */
+    showOfflineModal(earnings) {
+        // Formatear tiempo
+        const timeText = this.formatOfflineTime(earnings.timeAway);
+        // Actualizar contenido del modal
+        this.elements.offlineTime.textContent = timeText;
+        this.elements.offlinePoints.textContent = `+${this.formatNumber(earnings.pointsEarned)}`;
+        // Mostrar modal
+        this.elements.offlineModal.classList.remove('hidden');
+    }
+    /**
+     * Formatea el tiempo offline en texto legible
+     */
+    formatOfflineTime(seconds) {
+        if (seconds < 60) {
+            return `${Math.floor(seconds)} segundos`;
+        }
+        else if (seconds < 3600) {
+            const minutes = Math.floor(seconds / 60);
+            return `${minutes} minuto${minutes !== 1 ? 's' : ''}`;
+        }
+        else {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            if (minutes > 0) {
+                return `${hours} hora${hours !== 1 ? 's' : ''} y ${minutes} minuto${minutes !== 1 ? 's' : ''}`;
+            }
+            return `${hours} hora${hours !== 1 ? 's' : ''}`;
+        }
+    }
+    /**
+     * Reclama las ganancias offline
+     */
+    claimOfflineEarnings() {
+        if (!this.pendingOfflineEarnings) {
+            this.elements.offlineModal.classList.add('hidden');
+            return;
+        }
+        const points = this.pendingOfflineEarnings.pointsEarned;
+        const previousScore = this.state.score;
+        // Añadir puntos
+        this.state.score += points;
+        // Actualizar estadísticas
+        this.stats.totalPointsEarned += points;
+        this.stats.autoPointsEarned += points;
+        // Emitir evento
+        eventBus.emit('offline:earnings-claimed', {
+            pointsEarned: points
+        });
+        eventBus.emit('points:changed', {
+            previousScore: previousScore,
+            newScore: this.state.score,
+            delta: points,
+            source: 'offline'
+        });
+        // Limpiar y ocultar modal
+        this.pendingOfflineEarnings = null;
+        this.elements.offlineModal.classList.add('hidden');
+        // Actualizar UI
+        this.updateUI();
+        // Guardar progreso
+        this.saveAll();
+    }
+    // ============================================
+    // SISTEMA DE GUARDADO AUTOMÁTICO
+    // ============================================
+    /**
+     * Configura el guardado automático y al cerrar la página
+     */
+    setupAutoSave() {
+        // Guardar al cerrar o cambiar de pestaña
+        window.addEventListener('beforeunload', () => {
+            this.saveAll();
+        });
+        // Guardar periódicamente (cada 30 segundos)
+        setInterval(() => {
+            this.saveAll();
+        }, 30000);
+        // También guardar cuando la pestaña pierde visibilidad
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.saveAll();
+            }
+        });
+    }
+    /**
+     * Guarda todos los datos del juego usando el SaveManager
+     */
+    saveAll() {
+        const saveData = {
+            lastActiveTime: Date.now(),
+            gameState: this.state,
+            settings: this.settings,
+            profile: this.profile,
+            stats: this.stats,
+            missions: {
+                completedIds: this.completedMissionIds
+            },
+            prestige: this.prestige,
+            progression: this.progression
+        };
+        if (saveManager.save(saveData)) {
+            eventBus.emit('save:completed', {
+                timestamp: Date.now()
+            });
+        }
     }
 }
 // ============================================
