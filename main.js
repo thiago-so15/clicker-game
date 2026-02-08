@@ -1216,42 +1216,58 @@ class MicroAnimations {
         return !document.body.classList.contains('no-animations');
     }
     /**
-     * Crear partícula de puntos flotante
+     * Obtener la posición central del botón de click
+     */
+    getButtonCenter() {
+        if (!this.clickButton)
+            return { x: 0, y: 0 };
+        const rect = this.clickButton.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2
+        };
+    }
+    /**
+     * Crear partícula de puntos flotante (siempre sobre el botón)
      */
     createClickParticle(config) {
         if (!this.isEnabled() || !this.container)
             return;
+        // Siempre usar la posición del botón como referencia
+        const center = this.getButtonCenter();
         const particle = document.createElement('div');
         particle.className = `click-particle ${config.type}`;
         particle.textContent = config.text;
-        // Posición con variación aleatoria
+        // Posición centrada en el botón con variación aleatoria
         const offsetX = (Math.random() - 0.5) * 60;
-        const offsetY = (Math.random() - 0.5) * 20;
-        particle.style.left = `${config.x + offsetX}px`;
-        particle.style.top = `${config.y + offsetY}px`;
+        const offsetY = (Math.random() - 0.5) * 20 - 30; // Un poco arriba del centro
+        particle.style.left = `${center.x + offsetX}px`;
+        particle.style.top = `${center.y + offsetY}px`;
         particle.style.setProperty('--rotation', `${(Math.random() - 0.5) * 20}deg`);
         this.container.appendChild(particle);
         // Eliminar después de la animación
         setTimeout(() => particle.remove(), 800);
     }
     /**
-     * Crear estrellas decorativas
+     * Crear estrellas decorativas (siempre sobre el botón)
      */
-    createStars(x, y, count = 3) {
+    createStars(count = 3) {
         if (!this.isEnabled() || !this.container)
             return;
+        // Siempre usar la posición del botón como referencia
+        const center = this.getButtonCenter();
         const emojis = ['✨', '⭐', '💫', '🌟'];
         for (let i = 0; i < count; i++) {
             const star = document.createElement('div');
             star.className = 'click-star';
             star.textContent = emojis[Math.floor(Math.random() * emojis.length)] ?? '✨';
-            // Posición en círculo alrededor del click
+            // Posición en círculo alrededor del botón
             const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-            const distance = 30 + Math.random() * 20;
+            const distance = 40 + Math.random() * 30;
             const tx = Math.cos(angle) * distance;
             const ty = Math.sin(angle) * distance;
-            star.style.left = `${x}px`;
-            star.style.top = `${y}px`;
+            star.style.left = `${center.x}px`;
+            star.style.top = `${center.y}px`;
             star.style.setProperty('--tx', `${tx}px`);
             star.style.setProperty('--ty', `${ty}px`);
             this.container.appendChild(star);
@@ -1259,9 +1275,9 @@ class MicroAnimations {
         }
     }
     /**
-     * Manejar click y actualizar combo
+     * Manejar click y actualizar combo (posición siempre sobre el botón)
      */
-    handleClick(x, y, points) {
+    handleClick(points) {
         if (!this.isEnabled())
             return;
         const now = Date.now();
@@ -1285,13 +1301,15 @@ class MicroAnimations {
             particleType = 'combo';
             displayText = `⚡ +${this.formatNumber(points)}`;
         }
-        // Crear partícula
+        // Obtener posición real del botón para las partículas
+        const center = this.getButtonCenter();
+        // Crear partícula (centrada en el botón)
         this.createClickParticle({
-            x, y, text: displayText, type: particleType
+            x: center.x, y: center.y, text: displayText, type: particleType
         });
-        // Crear estrellas si es combo
+        // Crear estrellas si es combo (centradas en el botón)
         if (this.comboCount >= 3) {
-            this.createStars(x, y, Math.min(this.comboCount, 6));
+            this.createStars(Math.min(this.comboCount, 6));
         }
         // Actualizar indicador de combo
         this.updateComboIndicator();
@@ -2896,7 +2914,7 @@ class ClickerGame {
             btn.addEventListener('click', () => this.showScreen('menu'));
         });
         // Click en el botón principal
-        this.elements.clickButton.addEventListener('click', (e) => this.handleClick(e));
+        this.elements.clickButton.addEventListener('click', () => this.handleClick());
         // Comprar mejora de click
         this.elements.clickUpgradeButton.addEventListener('click', () => this.buyClickUpgrade());
         // Comprar mejora de auto-click
@@ -3769,7 +3787,7 @@ class ClickerGame {
     /**
      * Maneja el click en el botón principal
      */
-    handleClick(event) {
+    handleClick() {
         // Guardar puntuación anterior
         const previousScore = this.state.score;
         // Sumar puntos (con multiplicador)
@@ -3794,15 +3812,8 @@ class ClickerGame {
         });
         // Mostrar feedback visual con micro-animaciones
         this.showClickFeedback();
-        // Micro-animaciones avanzadas
-        if (event) {
-            microAnimations.handleClick(event.clientX, event.clientY, points);
-        }
-        else {
-            // Fallback si no hay evento (para compatibilidad)
-            const buttonRect = this.elements.clickButton.getBoundingClientRect();
-            microAnimations.handleClick(buttonRect.left + buttonRect.width / 2, buttonRect.top + buttonRect.height / 2, points);
-        }
+        // Micro-animaciones avanzadas (siempre centradas en el botón)
+        microAnimations.handleClick(points);
         // Animar actualización del score
         microAnimations.animateValueUpdate(this.elements.score, 'updated');
         // Actualizar UI y guardar
