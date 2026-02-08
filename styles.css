@@ -1809,7 +1809,8 @@ body.no-animations .toggle-slider::before {
 }
 
 body.no-animations .click-feedback {
-    display: none;
+    display: none !important;
+    opacity: 0 !important;
 }
 
 /* ============================================

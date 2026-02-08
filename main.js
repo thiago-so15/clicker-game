@@ -3810,12 +3810,12 @@ class ClickerGame {
             delta: points,
             source: 'click'
         });
-        // Mostrar feedback visual con micro-animaciones
-        this.showClickFeedback();
-        // Micro-animaciones avanzadas (siempre centradas en el botón)
-        microAnimations.handleClick(points);
-        // Animar actualización del score
-        microAnimations.animateValueUpdate(this.elements.score, 'updated');
+        // Mostrar feedback visual y animaciones solo si están habilitadas
+        if (this.settings.animationsEnabled) {
+            this.showClickFeedback();
+            microAnimations.handleClick(points);
+            microAnimations.animateValueUpdate(this.elements.score, 'updated');
+        }
         // Actualizar UI y guardar
         this.updateUI();
         this.updateShopUI();
@@ -3825,6 +3825,9 @@ class ClickerGame {
      * Muestra el feedback visual al hacer click (+N puntos flotando)
      */
     showClickFeedback() {
+        // No mostrar feedback si las animaciones están desactivadas
+        if (!this.settings.animationsEnabled)
+            return;
         const feedback = this.elements.clickFeedback;
         // Crear el texto del feedback (con multiplicador)
         const points = this.state.pointsPerClick * this.pointsMultiplier;
